@@ -1,12 +1,13 @@
 import VerifiedCdclDatastructures.Basic
+import VerifiedCdclDatastructures.AssignmentTrail
 namespace CDCL.Solver
 /-- Solver state. -/
 structure Solver where
   clauses     : ClauseDB
   assignment  : Assignment
   decision_lvl : Nat := 0
-  trail       : Array Lit := #[] -- FIXME: Change this to AssignmentTrail later
-  deriving Repr
+  trail       : AssignmentTrail
+  -- deriving Repr
 
 
 /- Decision heuristics (VSIDS, LRB, etc.) can be plugged in. -/
@@ -40,3 +41,5 @@ def backtrack (s : Solver) (lvl : Nat) : Solver :=
   { s with decision_lvl := lvl }
 
 end CDCL.Solver
+
+-- TODO: Theorems about solver functions!

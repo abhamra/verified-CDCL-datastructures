@@ -1,6 +1,5 @@
 import Std.Data.HashMap
 import Std.Data.HashSet
-import VerifiedCdclDatastructures.AssignmentTrail
 
 /- TODO:
   - Create Literal structure: Is this necessary, or can we just use bools?
@@ -92,49 +91,7 @@ structure WatchList where
   
 /- Helper functions for WatchList go here -/
 
-/- TODO: Assignment Trail (TBD in diff file) -/
-
-/- NOTE: Below is optional stuff for hooking things together! -/
-
-/-- Solver state. -/
-structure Solver where
-  clauses     : ClauseDB
-  assignment  : Assignment
-  decision_lvl : Nat := 0
-  trail       : Array Lit := #[] -- FIXME: Change this to AssignmentTrail later
-  deriving Repr
-
 /- Seen set, for conflict analysis etc. -/
 abbrev Seen := Std.HashSet Var
-
-/- Decision heuristics (VSIDS, LRB, etc.) can be plugged in. -/
-class Heuristic (α : Type) where
-  pickVar : Solver → Option Var
-
-/- Stub for BCP (unit propagation with 2WL).
-   TODO: Revisit this function!
--/
-def bcp (s : Solver) : Solver × Option Clause := 
-  -- TODO: implement watched literals
-  (s, none)
-
-/- Stub for making a decision. -/
-def decide (s : Solver) : Solver :=
-  -- TODO: use heuristic
-  s
-
-/- Stub for conflict analysis. -/
-def analyze (s : Solver) (conflict : Clause) : Solver × Clause :=
-  -- TODO: implement 1-UIP
-  (s, conflict)
-
-/- Stub for clause learning. -/
-def learn (s : Solver) (c : Clause) : Solver :=
-  { s with clauses.learnt_clauses := s.clauses.learnt_clauses.push c }
-
-/- Stub for backtracking. -/
-def backtrack (s : Solver) (lvl : Nat) : Solver :=
-  -- TODO: trim trail, reset assignment
-  { s with decision_lvl := lvl }
 
 end CDCL
