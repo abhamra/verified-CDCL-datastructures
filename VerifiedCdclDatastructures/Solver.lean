@@ -1,5 +1,5 @@
 import VerifiedCdclDatastructures.Basic
-namespace Solver
+namespace CDCL.Solver
 /-- Solver state. -/
 structure Solver where
   clauses     : ClauseDB
@@ -39,4 +39,4 @@ def backtrack (s : Solver) (lvl : Nat) : Solver :=
   -- TODO: trim trail, reset assignment
   { s with decision_lvl := lvl }
 
-end Solver
+end CDCL.Solver
