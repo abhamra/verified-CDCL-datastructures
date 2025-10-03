@@ -97,3 +97,4 @@ abbrev Seen := Std.HashSet Var
 end CDCL
 
 -- TODO: Theorems about these data structures!
+-- Write down invariants here
