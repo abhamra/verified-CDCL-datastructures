@@ -64,9 +64,19 @@ structure Formula where
 -/
 structure Assignment where
   vals : Std.HashMap Var Bool
+  num_assigned : Nat -- works in conjunction with len vals
   deriving Repr
 
 /- Helper functions for Assignment go here -/
+
+def assign (a : Assignment) (v : Var) (b : Bool) : Assignment :=
+  -- only increment num_assigned if was originally empty!
+  if Option.isNone (a.vals.get? v) then
+    { a with
+      vals := a.vals.insert v b,
+      num_assigned := a.num_assigned + 1 }
+  else
+    { a with vals := a.vals.insert v b }
 
 structure ClauseDB where
   init_clauses   : Array Clause -- from formula
