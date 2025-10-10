@@ -51,20 +51,23 @@ structure Clause where
   deriving Repr
 
 /- A formula is a conjunction of clauses
-   NOTE: We are assuming this because of CNF
+   NOTE: We are assuming this because of DIMACS CNF form
+   which gives us the # of vars, # of clauses as well
 
    NOTE: Do we need this structure in particular?
 -/
 structure Formula where
-  clauses : Array Clause
+  num_vars    : Nat
+  num_clauses : Nat
+  clauses     : Array Clause
   deriving Repr
 
 /- An assignment for a formula is a mapping from vars
    to truth values
 -/
 structure Assignment where
-  vals : Std.HashMap Var Bool
-  num_assigned : Nat -- works in conjunction with len vals
+  vals : Std.HashMap Var Bool := {}
+  num_assigned : Nat := 0 -- works in conjunction with len vals
   deriving Repr
 
 /- Helper functions for Assignment go here -/
@@ -84,6 +87,11 @@ structure ClauseDB where
   deriving Repr
 
 /- Helper functions for ClauseDB go here -/
+def allClauses (db : ClauseDB) : Array Clause :=
+  db.init_clauses ++ db.learnt_clauses
+
+def addLearnt (db : ClauseDB) (c : Clause) : ClauseDB :=
+  { db with learnt_clauses := db.learnt_clauses.push c }
 
 /- The watch list contains, for each literal, a list of clauses
    that are currently watching that literal
@@ -92,14 +100,38 @@ structure ClauseDB where
 
    This data structure pairs with the two concrete watched literals
    in each clause of our formula
+
+  invariant: either a clause has two unassigned watch literals or it is unit
+  for currently unsatisfied clauses
+  where unsatisfied means (not yet satisfied under current partial assignment)
+
+  Unless a conflict has been found, a watched literal may
+  be false only if the other watched literal is true and all
+  the unwatched literals are false.
+  NOTE: ^ Invariant from "A Verified SAT Solver with Watched Literals
+          Using Imperative HOL"
 -/
 structure WatchList where
-  clauses_per_lit : Std.HashMap Lit (Array Nat)
+  clauses_per_lit : Std.HashMap Lit (Array Nat) := {}
   -- Each Lit points to a list of indices to clauses in a Formula
   -- since Formula holds an indexable list of clauses
   deriving Repr
   
 /- Helper functions for WatchList go here -/
+/- Add a number of clause indices to a given literal
+   To add only one, just provide a singleton list
+-/
+def addWatch (wl : WatchList) (lit : Lit) (clauseIndices : Array Nat) : WatchList :=
+  let curr_wls_for_lit := wl.clauses_per_lit[lit]?.getD #[]
+  let updated := curr_wls_for_lit ++ clauseIndices
+  { wl with clauses_per_lit := wl.clauses_per_lit.insert lit updated }
+
+def getWatched (wl : WatchList) (lit : Lit) : Array Nat :=
+  wl.clauses_per_lit[lit]?.getD #[]
+
+def emptyWL : WatchList :=
+  { clauses_per_lit := {} }
+
 
 /- Seen set, for conflict analysis etc. -/
 abbrev Seen := Std.HashSet Var
