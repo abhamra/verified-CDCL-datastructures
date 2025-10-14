@@ -51,6 +51,7 @@ structure Lit where
 structure Clause where
   lits    : Array Lit
   learnt  : Bool := false -- default
+  -- FIXME: Delete this, return to SATurn
   watch1? : Option Nat := none -- default
   watch2? : Option Nat := none -- default
   deriving Repr
@@ -118,6 +119,8 @@ def addLearnt (db : ClauseDB) (c : Clause) : ClauseDB :=
   the unwatched literals are false.
   NOTE: ^ Invariant from "A Verified SAT Solver with Watched Literals
           Using Imperative HOL"
+
+  FIXME: Delete this and we try doing regular DPLL?
 -/
 structure WatchList where
   clauses_per_lit : Std.HashMap Lit (Array Nat) := {}
@@ -159,6 +162,11 @@ def emptyWL : WatchList :=
     Example on p3-4 is instructive
 
   - invariant: WS and Q are empty during decide
+
+  - With delete_idx_and_swap(), given a list of clauses relative
+    to some literal L, watch_list[L], if the clause w no longer watches L bc of
+    update, swap w with the last clause in the list then delete.
+    This is constant time!
 -/
 
 /- Seen set, for conflict analysis etc. -/
