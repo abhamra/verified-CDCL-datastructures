@@ -51,3 +51,6 @@ def isEmpty (t : AssignmentTrail) : Bool :=
 end AssignmentTrail
 
 -- TODO: Prove the functionality of the stack, and then semantics of the AssignmentTrail
+/- When removing literals from the assignment trail, we want the invariant for
+   the 2WL to be preserved without requiring any real updates (lazy)
+-/

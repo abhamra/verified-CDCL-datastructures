@@ -36,6 +36,11 @@ structure Lit where
   var  : Var
   sign : Bool := true -- true => var, false => ¬var
   dl   : Nat := 0 -- decision level
+  /- also add from_unit : Option Nat for the case
+     if a clause was learnt via unit resolution,
+     which clause caused that? have a ref to it
+     (idea from IsaSAT TWL paper)
+  -/
   deriving Repr, BEq, DecidableEq, Hashable
 
 /- Helper functions for Lit go here -/
@@ -81,17 +86,20 @@ def assign (a : Assignment) (v : Var) (b : Bool) : Assignment :=
   else
     { a with vals := a.vals.insert v b }
 
+/- Invariant: Assume the ClauseDB has no duplicates,
+   and never produces clauses containing duplicates
+-/
 structure ClauseDB where
-  init_clauses   : Array Clause -- from formula
-  learnt_clauses : Array Clause -- from conflict analysis
+  -- init_clauses   : Array Clause -- from formula
+  -- learnt_clauses : Array Clause -- from conflict analysis
+  clauses : Array Clause -- can just use indices as normal
+  -- FIXME: Per paper, change this to store both at same time?
   deriving Repr
 
 /- Helper functions for ClauseDB go here -/
-def allClauses (db : ClauseDB) : Array Clause :=
-  db.init_clauses ++ db.learnt_clauses
 
 def addLearnt (db : ClauseDB) (c : Clause) : ClauseDB :=
-  { db with learnt_clauses := db.learnt_clauses.push c }
+  { db with clauses := db.clauses.push c }
 
 /- The watch list contains, for each literal, a list of clauses
    that are currently watching that literal
@@ -132,6 +140,26 @@ def getWatched (wl : WatchList) (lit : Lit) : Array Nat :=
 def emptyWL : WatchList :=
   { clauses_per_lit := {} }
 
+
+/- FIXME: From IsaSAT TWL paper
+  "To capture the 2WL data structure formally, we need a no-
+  tion of state that takes into account pending updates. These
+  can concern a specific clause or all the clauses associated
+  with a literal. As in the example above, we first process the
+  clause-specific updates; then we move to the next literal and
+  start updating its associated clauses."
+
+  - Store unit and non-unit clauses separately
+  - have a "work stack" WS which holds {(L, C_1), ..., (L, C_n)}
+    for false literal L and clauses C_i that watch L and thus
+    require an update
+  - have a queue Q to store all of the other "in flight" literals
+    that need to be worked on
+
+    Example on p3-4 is instructive
+
+  - invariant: WS and Q are empty during decide
+-/
 
 /- Seen set, for conflict analysis etc. -/
 abbrev Seen := Std.HashSet Var

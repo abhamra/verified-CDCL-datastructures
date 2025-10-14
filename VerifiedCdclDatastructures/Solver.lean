@@ -1,5 +1,5 @@
-import VerifiedCdclDatastructures.AssignmentTrail
 import VerifiedCdclDatastructures.Basic
+import VerifiedCdclDatastructures.AssignmentTrail
 namespace CDCL.Solver
 /-- Solver state. -/
 structure Solver where
@@ -63,7 +63,7 @@ def analyzeConflict (s : Solver) (conflict : Clause) : Solver × Nat :=
 
 /- Stub for clause learning. -/
 def learn (s : Solver) (c : Clause) : Solver :=
-  { s with clauses.learnt_clauses := s.clauses.learnt_clauses.push c }
+  { s with clauses.clauses := s.clauses.clauses.push c }
 
 /- Stub for backjumping/backtracking. -/
 def backjump (s : Solver) (lvl : Nat) : Solver :=
@@ -98,7 +98,7 @@ def initSolver (f : Formula) : Solver :=
    else 
     (clauses, wl)
   let (init_clauses, wl) := build 0 f.clauses emptyWL
-  let db : ClauseDB := { init_clauses := init_clauses, learnt_clauses := #[] }
+  let db : ClauseDB := { clauses := init_clauses }
   let trail : AssignmentTrail := { stack := Stack.empty }
   { num_vars := num_vars, num_clauses := num_clauses, clauses := db,
     assignment := { vals := {}, num_assigned := 0 },
