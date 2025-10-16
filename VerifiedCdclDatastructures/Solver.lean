@@ -1,5 +1,5 @@
-import VerifiedCdclDatastructures.Basic
 import VerifiedCdclDatastructures.AssignmentTrail
+import VerifiedCdclDatastructures.Basic
 namespace CDCL.Solver
 /-- Solver state. -/
 structure Solver where
@@ -9,7 +9,6 @@ structure Solver where
   assignment   : Assignment
   decision_lvl : Nat := 0
   trail        : AssignmentTrail
-  watch_list   : WatchList
   -- deriving Repr
 
 /- Decision heuristics (VSIDS, LRB, etc.) can be plugged in. -/
@@ -70,39 +69,18 @@ def backjump (s : Solver) (lvl : Nat) : Solver :=
   -- TODO: trim trail, reset assignment
   { s with decision_lvl := lvl }
 
-/- For a given clause index, update the watchlist for it, and the corresponding
-   clauses' watched literals
--/
-def initClauseWatches (idx : Nat) (c : Clause) (wl : WatchList) : (Clause × WatchList) :=
-  match c.lits[0]?, c.lits[1]? with
-  | some l1, some l2 =>
-      let wl := addWatch wl l1 #[idx]
-      let wl := addWatch wl l2 #[idx]
-      ({ c with watch1? := some 0, watch2? := some 1 }, wl)
-  | some l1, none =>
-      let wl := addWatch wl l1 #[idx]
-      ({ c with watch1? := some 0, watch2? := none }, wl)
-  | _, _ =>
-      (c, wl)
-
 /- A function that takes in a given formula and initializes
    the solver's state!
 -/
 def initSolver (f : Formula) : Solver :=
   let num_vars := f.num_vars
   let num_clauses := f.num_clauses
-  let rec build (i : Nat) (clauses : Array Clause) (wl : WatchList) : (Array Clause × WatchList) :=
-   if h : i < clauses.size then
-    let (c, wl') := initClauseWatches i clauses[i] wl -- do our updates
-    build (i + 1) (clauses.set! i c) wl' -- replace the clause in the array w/updated one
-   else 
-    (clauses, wl)
-  let (init_clauses, wl) := build 0 f.clauses emptyWL
+  let init_clauses := f.clauses
   let db : ClauseDB := { clauses := init_clauses }
   let trail : AssignmentTrail := { stack := Stack.empty }
   { num_vars := num_vars, num_clauses := num_clauses, clauses := db,
     assignment := { vals := {}, num_assigned := 0 },
-    decision_lvl := 0, trail := trail, watch_list := wl }
+    decision_lvl := 0, trail := trail }
 
 /- A function that does all of the actual solving, and returns
    either a satisfying assignment to the literals, or none

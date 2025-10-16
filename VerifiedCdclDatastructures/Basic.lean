@@ -51,9 +51,6 @@ structure Lit where
 structure Clause where
   lits    : Array Lit
   learnt  : Bool := false -- default
-  -- FIXME: Delete this, return to SATurn
-  watch1? : Option Nat := none -- default
-  watch2? : Option Nat := none -- default
   deriving Repr
 
 /- A formula is a conjunction of clauses
@@ -102,75 +99,12 @@ structure ClauseDB where
 def addLearnt (db : ClauseDB) (c : Clause) : ClauseDB :=
   { db with clauses := db.clauses.push c }
 
-/- The watch list contains, for each literal, a list of clauses
-   that are currently watching that literal
-   TODO: Implement this, and figure out if this requires, for ex.,
-   p and ¬p to be "unique" watched literals (I don't think so)
-
-   This data structure pairs with the two concrete watched literals
-   in each clause of our formula
-
-  invariant: either a clause has two unassigned watch literals or it is unit
-  for currently unsatisfied clauses
-  where unsatisfied means (not yet satisfied under current partial assignment)
-
-  Unless a conflict has been found, a watched literal may
-  be false only if the other watched literal is true and all
-  the unwatched literals are false.
-  NOTE: ^ Invariant from "A Verified SAT Solver with Watched Literals
-          Using Imperative HOL"
-
-  FIXME: Delete this and we try doing regular DPLL?
--/
-structure WatchList where
-  clauses_per_lit : Std.HashMap Lit (Array Nat) := {}
-  -- Each Lit points to a list of indices to clauses in a Formula
-  -- since Formula holds an indexable list of clauses
-  deriving Repr
-  
-/- Helper functions for WatchList go here -/
-/- Add a number of clause indices to a given literal
-   To add only one, just provide a singleton list
--/
-def addWatch (wl : WatchList) (lit : Lit) (clauseIndices : Array Nat) : WatchList :=
-  let curr_wls_for_lit := wl.clauses_per_lit[lit]?.getD #[]
-  let updated := curr_wls_for_lit ++ clauseIndices
-  { wl with clauses_per_lit := wl.clauses_per_lit.insert lit updated }
-
-def getWatched (wl : WatchList) (lit : Lit) : Array Nat :=
-  wl.clauses_per_lit[lit]?.getD #[]
-
-def emptyWL : WatchList :=
-  { clauses_per_lit := {} }
-
-
-/- FIXME: From IsaSAT TWL paper
-  "To capture the 2WL data structure formally, we need a no-
-  tion of state that takes into account pending updates. These
-  can concern a specific clause or all the clauses associated
-  with a literal. As in the example above, we first process the
-  clause-specific updates; then we move to the next literal and
-  start updating its associated clauses."
-
-  - Store unit and non-unit clauses separately
-  - have a "work stack" WS which holds {(L, C_1), ..., (L, C_n)}
-    for false literal L and clauses C_i that watch L and thus
-    require an update
-  - have a queue Q to store all of the other "in flight" literals
-    that need to be worked on
-
-    Example on p3-4 is instructive
-
-  - invariant: WS and Q are empty during decide
-
-  - With delete_idx_and_swap(), given a list of clauses relative
-    to some literal L, watch_list[L], if the clause w no longer watches L bc of
-    update, swap w with the last clause in the list then delete.
-    This is constant time!
--/
-
 /- Seen set, for conflict analysis etc. -/
 abbrev Seen := Std.HashSet Var
+
+/- Need to create a ResolutionTree, or some data structure
+   that allows us to store the UNSAT proof
+-/
 
 end CDCL
 
