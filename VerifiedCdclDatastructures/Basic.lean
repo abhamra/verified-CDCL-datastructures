@@ -104,7 +104,29 @@ abbrev Seen := Std.HashSet Var
 
 /- Need to create a ResolutionTree, or some data structure
    that allows us to store the UNSAT proof
+
+   During resolution we care about:
+   - pivot literals
+   - clauses derived from the resolution step
+
+   Leaf: existing clause, referred to by id
+   Resolve: records pivot + the two other nodes
+            used in the resolution step
 -/
+inductive ResolutionTree where
+  /- Leaves are clauses from the original formula, we only
+     start with leaves and build up conflict clauses + our
+     resolution tree from there
+  -/
+  | leaf    : (clauseIdx : Nat) -> ResolutionTree
+  | resolve : (pivotVar  : Var) ->
+              (pivotSign : Bool) -> -- true => left has pos pivot, right has ¬pivot
+              (left      : ResolutionTree) ->
+              (right     : ResolutionTree) ->
+              ResolutionTree
+  deriving Repr
+
+-- TODO: Helpers for this!
 
 end CDCL
 
