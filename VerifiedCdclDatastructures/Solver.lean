@@ -9,6 +9,8 @@ structure Solver where
   assignment   : Assignment
   decision_lvl : Nat := 0
   trail        : AssignmentTrail
+  sat_clauses  : Std.HashSet Nat := {} -- Stores _indices_ to clauses in ClauseDB
+  prop_reason  : Array (Option Nat) := #[] -- Stores variable whose assignment led to propagation. prop_reason[n] = m → n is forced to ⊤/⊥ because of m.
   -- deriving Repr
 
 /- Decision heuristics (VSIDS, LRB, etc.) can be plugged in. -/
@@ -29,34 +31,41 @@ variable (Naive : Type)
 instance : Heuristic Naive where
   pickVar := naivePickVar
 
-/- Stub for BCP (unit propagation with 2WL).
-   TODO: Revisit this function!
+abbrev BCPResult := Except (Solver × Clause) Solver
+#check Array.foldlM
+#check Except
+
+-- NOTE:
+-- DPLL + VSIDS proof
+-- Understand and extend SATurn
+-- Discover invariants on the behavior of VSIDS and formalize & prove them.
+-- Cover all invariants in the presentation, including those Siddartha discovered.
+
+/- If satisfied or unknown, returns (ok s), otherwise returns (error (s, conflict))
 -/
-def bcp (s : Solver) : Solver × Option Clause := 
+def bcp (s : Solver) : BCPResult := 
   -- NOTE: No 2WL -- too difficult to prove.
-  -- To make later searches faster I'm going to have a sort of "two stacks" implementation
-  -- (satisfied and unsatisfied)
   
-  let propOne (s_and_conf : Solver × Option Clause) (v : Var): Solver × Option Clause :=
-    let (s, conflict_clause?) := s_and_conf
+  -- We actually only want to do this for literals that are unit.
+  let propOne (s : Solver) (v : Var): BCPResult :=
     -- Check all the clauses to see if they contain `v`.
-    let v_pos : Lit := { var := v, sign := true, dl := 0 }
-    let v_neg : Lit := { var := v, sign := false, dl := 0 }
-    -- TODO: We should be able to prove that v_pos or v_neg is in the map.
-    -- We can invariants about the solver easily accessible by adding a field with type (`inv`)
-    let s' := Array.foldl (λ (s : Solver) (c_ind : Nat) =>
-      sorry
-    ) s (sorry)
+    let v_pos : Lit := { var := v, sign := true }
+    let v_neg : Lit := { var := v, sign := false }
+    -- Propagate positively
+    let sat_clauses' := s.sat_clauses.insertMany
+      (Array.filter (λ (c_ind : Nat) =>
+        not (s.sat_clauses.contains c_ind) && s.clauses.clauses[c_ind]!.lits.elem v_pos)
+        (Array.range s.clauses.clauses.size))
 
-    sorry
+    -- Propagate negatively.
+
+    Except.ok { s with
+                sat_clauses := sat_clauses' }
+  
+  -- Find which literals are unit. (Maybe we could just maintain this as we go along?)
+
   -- Naively folding
-  let rec propagate (s : Solver) 
-      (open_clauses : Array Clause := s.clauses.clauses)
-      (unsat_clauses : Stack Clause := Stack.empty):
-      Solver × Option Clause :=
-
-    Array.foldl propOne (s, none) (Array.range s.num_vars)
- propagate s
+  Array.foldlM propOne s (Array.range s.num_vars)
 
 /-
 def bcp2WL (s : Solver) : Solver × Option Clause :=
@@ -94,11 +103,12 @@ def decide {α : Type} [h : Heuristic α] (s : Solver) : Solver :=
   | none   => s  -- no unassigned variable left
   | some v =>
     -- increment decision level and assign the variable
-    let l : Lit := { var := v, sign := true, dl := s.decision_lvl + 1 }
+    let l : Lit := { var := v, sign := true }
+    let dl := s.decision_lvl + 1
     { s with
-      decision_lvl := s.decision_lvl + 1,
+      decision_lvl := dl,
       assignment   := assign s.assignment v true  -- for now, just pick True
-      trail        := s.trail.push l -- we add to the assignment trail @ decision time!
+      trail        := s.trail.push l dl -- we add to the assignment trail @ decision time!
     }
 
 /- Stub for conflict analysis. This should, given some solver and 
@@ -155,26 +165,26 @@ def initSolver (f : Formula) : Solver :=
    NOTE: We currently mark this `partial`, since we have to figure out a way to
    prove some sort of measure for "decreasing" or termination that Lean can abide by!
 -/
-partial def solve? [Heuristic α] (s : Solver) : Option Assignment :=
-  let (s', conflict?) := bcp s
-  match conflict? with
-  | some conflict =>
-    let (s'', backjumpLvl) := analyzeConflict s' conflict
-    -- top level conflict => UNSAT
-    if backjumpLvl == 0 then
-      none
-    else
-      -- backjump!
-      let s''' := backjump s'' backjumpLvl
-      solve? (α := α) s'''
-  | none =>
+partial def solve? [Heuristic α] (s : Solver) : Except ResolutionTree Assignment :=
+  match bcp s with
+  | Except.ok s' =>
     -- if all variables assigned, we have SAT!
     if s'.assignment.vals.size == s'.assignment.num_assigned then
-       some s'.assignment
+       Except.ok s'.assignment
     else
       -- branching!
       let s_w_decide := decide (α := α) s'
       solve? (α := α) s_w_decide
+  | Except.error (s', conflict) =>
+    let (s'', backjumpLvl) := analyzeConflict s' conflict
+    -- top level conflict => UNSAT
+    if backjumpLvl == 0 then
+      -- TODO: Return a proof.
+      Except.error (ResolutionTree.leaf 0)
+    else
+      -- backjump!
+      let s''' := backjump s'' backjumpLvl
+      solve? (α := α) s'''
 
 end CDCL.Solver
 

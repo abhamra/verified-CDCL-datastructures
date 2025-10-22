@@ -27,22 +27,22 @@ def Stack.isEmpty {α : Type} : Stack α → Bool
 
 /- The assignment trail holds a stack of literals for use in the Solver process -/
 structure AssignmentTrail where
-  stack : Stack CDCL.Lit := Stack.empty
+  stack : Stack (CDCL.Lit × Nat) := Stack.empty
   -- deriving Repr
 
 namespace AssignmentTrail
 
 -- TODO: Add helper/wrapper functions around the internal stack
 
-def push (t : AssignmentTrail) (lit : CDCL.Lit) : AssignmentTrail :=
-  { t with stack := Stack.push lit t.stack }
+def push (t : AssignmentTrail) (lit : CDCL.Lit) (dl : Nat) : AssignmentTrail :=
+  { t with stack := Stack.push (lit, dl) t.stack }
 
 def pop (t : AssignmentTrail) : Option AssignmentTrail :=
   match Stack.pop t.stack with
   | none => none
   | some newS => some { t with stack := newS }
 
-def top (t : AssignmentTrail) : Option CDCL.Lit :=
+def top (t : AssignmentTrail) : Option (CDCL.Lit × Nat) :=
   Stack.top t.stack
 
 def isEmpty (t : AssignmentTrail) : Bool :=

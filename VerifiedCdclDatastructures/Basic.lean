@@ -35,7 +35,7 @@ abbrev Var := Nat
 structure Lit where
   var  : Var
   sign : Bool := true -- true => var, false => ¬var
-  dl   : Nat := 0 -- decision level
+  -- dl   : Nat := 0 -- decision level
   /- also add from_unit : Option Nat for the case
      if a clause was learnt via unit resolution,
      which clause caused that? have a ref to it
@@ -50,7 +50,7 @@ inductive Watched where
   | conflict
   | unit_clause (watch : Lit)
   | two_plus (watch1 : Lit) (watch2 : Lit)
-  deriving Repr
+  deriving Repr, Inhabited
 
 /- A clause is a disjunction of literals
    NOTE: We are assuming this because of CNF
@@ -59,7 +59,7 @@ structure Clause where
   lits    : Array Lit
   learnt  : Bool := false -- default
   wls     : Watched
-  deriving Repr
+  deriving Repr, Inhabited
 
 /- A formula is a conjunction of clauses
    NOTE: We are assuming this because of DIMACS CNF form
@@ -126,13 +126,12 @@ inductive ResolutionTree where
      start with leaves and build up conflict clauses + our
      resolution tree from there
   -/
-  | leaf    : (clauseIdx : Nat) -> ResolutionTree
-  | resolve : (pivotVar  : Var) ->
-              (pivotSign : Bool) -> -- true => left has pos pivot, right has ¬pivot
-              (left      : ResolutionTree) ->
-              (right     : ResolutionTree) ->
-              ResolutionTree
-  deriving Repr
+  | leaf    (clauseIdx : Nat)
+  | resolve (pivotVar  : Var)
+            (pivotSign : Bool) -- true => left has pos pivot, right has ¬pivot
+            (left      : ResolutionTree)
+            (right     : ResolutionTree)
+  deriving Repr, Inhabited
 
 -- TODO: Helpers for this!
 
