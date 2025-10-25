@@ -129,7 +129,7 @@ structure VsidsActivity where
 namespace VsidsActivity
 
 def new (n : Nat) (decay : Float := 0.95) : VsidsActivity :=
-  let activities := Array.mkArray n 0.0
+  let activities := Array.replicate n 0.0
   let heap := Batteries.BinomialHeap.empty
   { activities, var_inc := 1.0, decay, heap }
 
