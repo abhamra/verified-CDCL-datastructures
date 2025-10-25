@@ -114,8 +114,6 @@ abbrev Seen := Std.HashSet Var
 def leFloatVar (f1 f2: Float × Var) : Bool :=
   Float.le f1.1 f2.1
 
-#eval leFloatVar (3.2, 1) (5.4, 2)
-
 /- This structure stores all of the necessary components for VSIDS -/
 structure VsidsActivity where
   -- stores a variable's activity, NOTE: we have one entry per variable,
@@ -125,6 +123,37 @@ structure VsidsActivity where
   decay      : Float := 0.95 -- current decay
   var_heap   : BinomialHeap (Float × Var) leFloatVar
   deriving Repr
+
+namespace VsidsActivity
+
+def mk (n : Nat) (decay : Float := 0.95) : VsidsActivity :=
+  let activities := Array.mkArray n 0.0
+  let heap : BinomialHeap (Float × Nat) := BinomialHeap.empty
+  { activities, varInc := 1.0, decay, heap }
+
+def bump (a : VsidsActivity) (var : Nat) : VsidsActivity :=
+  let oldAct := a.activities[var]!
+  let newAct := oldAct + a.varInc
+  let acts := a.activities.set! var newAct
+  -- NOTE: Do this because heap is minheap by default
+  let heap := a.heap.insert (-(newAct), var)
+  { a with activities := acts, heap }
+
+def decayInc (a : VsidsActivity) : VsidsActivity :=
+  { a with varInc := a.varInc / a.decay }
+
+-- Select the most active variable
+def popMax (a : VsidsActivity) : Option (Nat × VsidsActivity) :=
+  match a.heap.deleteMin with
+  | none => none
+  | some (score_and_var, rest_of_heap) =>
+    some (score_and_var.2, {a with heap := rest_of_heap})
+
+end VsidsActivity
+
+/- TODO: Add other helper functions, or maybe we can just map
+   the functions across the solver
+-/
 
 /- Need to create a ResolutionTree, or some data structure
    that allows us to store the UNSAT proof
