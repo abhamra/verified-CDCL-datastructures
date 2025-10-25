@@ -1,6 +1,8 @@
 import Std.Data.HashSet
 import Std.Data.HashMap
 import Batteries.Data.BinomialHeap
+import Batteries.Data.BinomialHeap.Basic
+import Batteries.Data.BinomialHeap.Lemmas
 
 /- TODO:
   - Create Literal structure: Is this necessary, or can we just use bools?
@@ -112,7 +114,7 @@ def addLearnt (db : ClauseDB) (c : Clause) : ClauseDB :=
 abbrev Seen := Std.HashSet Var
 
 def leFloatVar (f1 f2: Float × Var) : Bool :=
-  Float.le f1.1 f2.1
+  f1.1 ≤ f2.1
 
 /- This structure stores all of the necessary components for VSIDS -/
 structure VsidsActivity where
@@ -121,14 +123,14 @@ structure VsidsActivity where
   activities : Array Float
   var_inc    : Float := 1.0  -- current increment
   decay      : Float := 0.95 -- current decay
-  heap       : BinomialHeap (Float × Var) leFloatVar
-  deriving Repr
+  heap       : Batteries.BinomialHeap (Float × Var) leFloatVar
+  -- deriving Repr
 
 namespace VsidsActivity
 
-def mk (n : Nat) (decay : Float := 0.95) : VsidsActivity :=
+def new (n : Nat) (decay : Float := 0.95) : VsidsActivity :=
   let activities := Array.mkArray n 0.0
-  let heap : BinomialHeap (Float × Nat) := BinomialHeap.empty
+  let heap := Batteries.BinomialHeap.empty
   { activities, var_inc := 1.0, decay, heap }
 
 def bump (a : VsidsActivity) (var : Nat) : VsidsActivity :=
