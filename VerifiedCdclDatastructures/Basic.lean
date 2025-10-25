@@ -129,18 +129,18 @@ namespace VsidsActivity
 def mk (n : Nat) (decay : Float := 0.95) : VsidsActivity :=
   let activities := Array.mkArray n 0.0
   let heap : BinomialHeap (Float × Nat) := BinomialHeap.empty
-  { activities, varInc := 1.0, decay, heap }
+  { activities, var_inc := 1.0, decay, heap }
 
 def bump (a : VsidsActivity) (var : Nat) : VsidsActivity :=
   let oldAct := a.activities[var]!
-  let newAct := oldAct + a.varInc
+  let newAct := oldAct + a.var_inc
   let acts := a.activities.set! var newAct
   -- NOTE: Do this because heap is minheap by default
   let heap := a.heap.insert (-(newAct), var)
   { a with activities := acts, heap }
 
 def decayInc (a : VsidsActivity) : VsidsActivity :=
-  { a with varInc := a.varInc / a.decay }
+  { a with var_inc := a.var_inc / a.decay }
 
 -- Select the most active variable
 def popMax (a : VsidsActivity) : Option (Nat × VsidsActivity) :=
