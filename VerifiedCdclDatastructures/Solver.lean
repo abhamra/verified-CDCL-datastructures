@@ -1,5 +1,5 @@
-import VerifiedCdclDatastructures.AssignmentTrail
 import VerifiedCdclDatastructures.Basic
+import VerifiedCdclDatastructures.AssignmentTrail
 namespace CDCL.Solver
 /-- Solver state. -/
 structure Solver where
@@ -19,7 +19,7 @@ class Heuristic (α : Type) where
 
 /- Finds the first unassigned variable and pics it.
    A bad decision heuristic!
--/ 
+-/
 def naivePickVar (s : Solver) : Option Var :=
   let vars := List.range s.num_vars
   vars.findSome? (fun v =>
@@ -27,9 +27,34 @@ def naivePickVar (s : Solver) : Option Var :=
     | none   => some v   -- unassigned
     | some _ => none)
 
+/- Uses the Variable State Independent Decaying Sum
+   (VSIDS) Decision Heuristic!
+
+   TODO: What invariants do we care about?
+-/
+def vsidsPickVar (s : Solver) : Option Var :=
+  sorry
+  /- NOTE: Initialize activity of all vars as 0
+     After a conflict (?):
+      - ∀ variables v ∈ cut of conflict, activity[v] += 1
+      - ∀ variables v ∈ learnt clause, activity[v] += 1
+      - ∀ variables v, activity[v] *= 0.95 (or some other decay val)
+  -/
+
+
+  -- let vars := List.range s.num_vars
+  -- vars.findSome? (fun v =>
+  --   match s.assignment.vals.get? v with
+  --   | none   => some v   -- unassigned
+  --   | some _ => none)
+
 variable (Naive : Type)
 instance : Heuristic Naive where
   pickVar := naivePickVar
+
+variable (VSIDS : Type)
+instance : Heuristic VSIDS where
+  pickVar := vsidsPickVar
 
 abbrev BCPResult := Except (Solver × Clause) Solver
 #check Array.foldlM
@@ -43,9 +68,9 @@ abbrev BCPResult := Except (Solver × Clause) Solver
 
 /- If satisfied or unknown, returns (ok s), otherwise returns (error (s, conflict))
 -/
-def bcp (s : Solver) : BCPResult := 
+def bcp (s : Solver) : BCPResult :=
   -- NOTE: No 2WL -- too difficult to prove.
-  
+
   -- We actually only want to do this for literals that are unit.
   let propOne (s : Solver) (v : Var): BCPResult :=
     -- Check all the clauses to see if they contain `v`.
@@ -61,7 +86,7 @@ def bcp (s : Solver) : BCPResult :=
 
     Except.ok { s with
                 sat_clauses := sat_clauses' }
-  
+
   -- Find which literals are unit. (Maybe we could just maintain this as we go along?)
 
   -- Naively folding
@@ -92,7 +117,7 @@ def bcp2WL (s : Solver) : Solver × Option Clause :=
 
   -- Find a unit clause. If there are none, we are done.
   match Array.findSome? litIfUnit s.clauses.clauses with
-  | some lit => 
+  | some lit =>
     -- Start propagating, continuing the loop if we find more unit clauses.
     propagate s lit
   | none => (s, none) -- We are done, no resolution can happen.
@@ -111,7 +136,7 @@ def decide {α : Type} [h : Heuristic α] (s : Solver) : Solver :=
       trail        := s.trail.push l dl -- we add to the assignment trail @ decision time!
     }
 
-/- Stub for conflict analysis. This should, given some solver and 
+/- Stub for conflict analysis. This should, given some solver and
    initial conflict clause, use the 1-UIP scheme to find new conflict
    clauses and add them to the solver's ClauseDB. Then, it will
    return the backjump level.

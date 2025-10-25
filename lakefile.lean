@@ -11,6 +11,8 @@ package «verified-cdcl-datastructures» where
 require mathlib from git
   "https://github.com/leanprover-community/mathlib4.git"
 
+require "leanprover-community" / "batteries" @ git "main"
+
 @[default_target]
 lean_lib «VerifiedCdclDatastructures» where
   -- add any library configuration options here

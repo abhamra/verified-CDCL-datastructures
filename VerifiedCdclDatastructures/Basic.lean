@@ -1,5 +1,6 @@
-import Std.Data.HashMap
 import Std.Data.HashSet
+import Std.Data.HashMap
+import Batteries.Data.BinomialHeap
 
 /- TODO:
   - Create Literal structure: Is this necessary, or can we just use bools?
@@ -109,6 +110,21 @@ def addLearnt (db : ClauseDB) (c : Clause) : ClauseDB :=
 
 /- Seen set, for conflict analysis etc. -/
 abbrev Seen := Std.HashSet Var
+
+def leFloatVar (f1 f2: Float × Var) : Bool :=
+  Float.le f1.1 f2.1
+
+#eval leFloatVar (3.2, 1) (5.4, 2)
+
+/- This structure stores all of the necessary components for VSIDS -/
+structure VsidsActivity where
+  -- stores a variable's activity, NOTE: we have one entry per variable,
+  -- NOT one entry per variable and polarity
+  activities : Array Float
+  var_inc    : Float := 1.0  -- current increment
+  decay      : Float := 0.95 -- current decay
+  var_heap   : BinomialHeap (Float × Var) leFloatVar
+  deriving Repr
 
 /- Need to create a ResolutionTree, or some data structure
    that allows us to store the UNSAT proof
