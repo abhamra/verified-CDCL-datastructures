@@ -122,7 +122,7 @@ structure VsidsActivity where
   var_inc    : Float := 1.0  -- current increment
   decay      : Float := 0.95 -- current decay
   heap       : Batteries.BinomialHeap (Float × Var) leFloatVar
-  deriving Repr
+  -- deriving Repr
 
 namespace VsidsActivity
 
