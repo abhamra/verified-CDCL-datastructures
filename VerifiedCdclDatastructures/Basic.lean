@@ -121,7 +121,7 @@ structure VsidsActivity where
   activities : Array Float
   var_inc    : Float := 1.0  -- current increment
   decay      : Float := 0.95 -- current decay
-  var_heap   : BinomialHeap (Float × Var) leFloatVar
+  heap       : BinomialHeap (Float × Var) leFloatVar
   deriving Repr
 
 namespace VsidsActivity
