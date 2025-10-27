@@ -130,12 +130,34 @@ def bump (a : VsidsActivity) (var : Nat) : VsidsActivity :=
   let oldAct := a.activities[var]!
   let newAct := oldAct + a.var_inc
   let acts := a.activities.set! var newAct
-  -- NOTE: Do this because heap is minheap by default
-  let heap := a.heap.insert (-(newAct), var)
-  { a with activities := acts, heap }
+  { a with activities := acts }
 
-def decayInc (a : VsidsActivity) : VsidsActivity :=
-  { a with var_inc := a.var_inc / a.decay }
+def decayAll (a : VsidsActivity) : VsidsActivity :=
+  let acts := a.activities.map (· * a.decay)
+  { a with activities := acts }
+
+def updateHeap (a : VsidsActivity) (vars : Array Nat) : VsidsActivity :=
+  let heap := vars.foldl (fun h v => h.insert (-(a.activities[v]!), v)) a.heap
+  { a with heap := heap }
+
+def bump_and_decay_all (a : VsidsActivity) (vars : Array Nat) : VsidsActivity :=
+  -- 1. Bump all v ∈ vars
+  -- 2. Decay all vars (not just ∈ vars)
+  -- 3. Update heap for all v ∈ vars with new activity value
+  -- NOTE: To self: feel free to unfold this expression into 3 separate ones lol
+  updateHeap (decayAll (vars.foldl (fun acc v => bump acc v) a)) vars
+
+def test_bump_and_decay_all : Bool :=
+  let initial : VsidsActivity := { activities := Array.replicate 3 0.0, var_inc := 1.0, decay := 0.5, heap := Batteries.BinomialHeap.empty }
+  let vars_to_bump := #[0,2]
+  let updated := bump_and_decay_all initial vars_to_bump
+  let acts := updated.activities
+  -- Check activities:
+  -- vars 0 and 2: (0 + 1) * 0.5 = 0.5
+  -- var 1: 0 * 0.5 = 0
+  acts[0]! == 0.5 && acts[1]! == 0.0 && acts[2]! == 0.5
+
+#eval test_bump_and_decay_all  -- should print true
 
 -- Select the most active variable
 def popMax (a : VsidsActivity) : Option (Nat × VsidsActivity) :=

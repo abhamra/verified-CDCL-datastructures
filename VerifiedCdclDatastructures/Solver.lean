@@ -11,6 +11,7 @@ structure Solver where
   trail        : AssignmentTrail
   sat_clauses  : Std.HashSet Nat := {} -- Stores _indices_ to clauses in ClauseDB
   prop_reason  : Array (Option Nat) := #[] -- Stores variable whose assignment led to propagation. prop_reason[n] = m → n is forced to ⊤/⊥ because of m.
+  activity     : VsidsActivity
   -- deriving Repr
 
 /- Decision heuristics (VSIDS, LRB, etc.) can be plugged in. -/
@@ -30,17 +31,18 @@ def naivePickVar (s : Solver) : Option Var :=
 /- Uses the Variable State Independent Decaying Sum
    (VSIDS) Decision Heuristic!
 
-   TODO: What invariants do we care about?
+   TODO:
+   - What invariants do we care about?
+   - Need to show that this function terminates (we eventually get through all vars)
 -/
-def vsidsPickVar (s : Solver) : Option Var :=
-  sorry
-  /- NOTE: Initialize activity of all vars as 0
-     After a conflict (?):
-      - ∀ variables v ∈ cut of conflict, activity[v] += 1
-      - ∀ variables v ∈ learnt clause, activity[v] += 1
-      - ∀ variables v, activity[v] *= 0.95 (or some other decay val)
-  -/
-
+partial def vsidsPickVar (s : Solver) : Option Var :=
+  match VsidsActivity.popMax s.activity with
+  | none => none
+  | some (var, activity') =>
+    -- care only about unassigned vars
+    match s.assignment.vals.get? var with
+    | some _ => vsidsPickVar { s with activity := activity' } -- skip assigned vars, try again
+    | none => some var
 
   -- let vars := List.range s.num_vars
   -- vars.findSome? (fun v =>
@@ -140,9 +142,18 @@ def decide {α : Type} [h : Heuristic α] (s : Solver) : Solver :=
    initial conflict clause, use the 1-UIP scheme to find new conflict
    clauses and add them to the solver's ClauseDB. Then, it will
    return the backjump level.
+
+  -- TODO: implement 1-UIP as a *stretch* goal, but goal for now
+     is to just use the assignment trail and create a conflict clause from there.
 -/
 def analyzeConflict (s : Solver) (conflict : Clause) : Solver × Nat :=
-  -- TODO: implement 1-UIP
+  -- TODO: We need to do bump_and_decay_all here, after we construct the conflict clause!
+  /- NOTE: Initialize activity of all vars as 0
+     After a conflict (?):
+      - ∀ variables v ∈ cut of conflict, activity[v] += 1
+      - ∀ variables v ∈ learnt clause, activity[v] += 1
+      - ∀ variables v, activity[v] *= 0.95 (or some other decay val)
+  -/
   (s, 0) -- TODO: Should return the backjump level!
 
 /- Stub for clause learning. -/
@@ -180,9 +191,11 @@ def initSolver (f : Formula) : Solver :=
   let init_clauses := f.clauses
   let db : ClauseDB := { clauses := init_clauses }
   let trail : AssignmentTrail := { stack := Stack.empty }
+  let activity : VsidsActivity := { activities := Array.replicate num_vars 0.0,
+                                    heap := Batteries.BinomialHeap.empty }
   { num_vars := num_vars, num_clauses := num_clauses, clauses := db,
     assignment := { vals := {}, num_assigned := 0 },
-    decision_lvl := 0, trail := trail }
+    decision_lvl := 0, trail := trail, activity := activity }
 
 /- A function that does all of the actual solving, and returns
    either a satisfying assignment to the literals, or none
