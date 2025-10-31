@@ -44,12 +44,6 @@ partial def vsidsPickVar (s : Solver) : Option Var :=
     | some _ => vsidsPickVar { s with activity := activity' } -- skip assigned vars, try again
     | none => some var
 
-  -- let vars := List.range s.num_vars
-  -- vars.findSome? (fun v =>
-  --   match s.assignment.vals.get? v with
-  --   | none   => some v   -- unassigned
-  --   | some _ => none)
-
 variable (Naive : Type)
 instance : Heuristic Naive where
   pickVar := naivePickVar
@@ -147,14 +141,27 @@ def decide {α : Type} [h : Heuristic α] (s : Solver) : Solver :=
      is to just use the assignment trail and create a conflict clause from there.
 -/
 def analyzeConflict (s : Solver) (conflict : Clause) : Solver × Nat :=
-  -- TODO: We need to do bump_and_decay_all here, after we construct the conflict clause!
-  /- NOTE: Initialize activity of all vars as 0
-     After a conflict (?):
-      - ∀ variables v ∈ cut of conflict, activity[v] += 1
-      - ∀ variables v ∈ learnt clause, activity[v] += 1
-      - ∀ variables v, activity[v] *= 0.95 (or some other decay val)
-  -/
-  (s, 0) -- TODO: Should return the backjump level!
+  -- get all vars from clause, then
+  let conflict_vars := conflict.lits.map (·.var) -- ignores sign
+  -- bump and decay all, then
+  let updated_activity := VsidsActivity.bump_and_decay_all s.activity conflict_vars
+  -- update solver activity, then
+  let s' := { s with activity := updated_activity };
+
+  -- NOTE: Not doing this rn, no real learning cuz DPLL + VSIDS
+  /- find a new conflict clause and
+    add it to the clausedb, then
+   let new_clauses : Array Clause := s'.clauses.clauses.push new_conflict
+   let new_db : ClauseDB := { s'.clauses with clauses := new_clauses }
+   let s'' := { s' with clauses := new_db } -/
+
+  -- figure out backjump level. We do this by selecting the variable
+  -- with the 2nd highest decision level.
+  -- NOTE: The highest deicision level is the level of our conflict, so we
+  -- want at least one before that, to prevent that same conflict from arising
+ -- NOTE: If we don't do clause learning, then backjump level is always
+ --       the curr level - 1
+  (s', s'.decision_lvl - 1)
 
 /- Stub for clause learning. -/
 def learn (s : Solver) (c : Clause) : Solver :=
@@ -165,22 +172,6 @@ def backjump (s : Solver) (lvl : Nat) : Solver :=
   -- TODO: trim trail, reset assignment
   { s with decision_lvl := lvl }
 
-/-
-/- For a given clause index, update the watchlist for it, and the corresponding
-   clauses' watched literals
--/
-def initClauseWatches (idx : Nat) (c : Clause) (wl : WatchList) : Clause × WatchList :=
-  match c.lits[0]?, c.lits[1]? with
-  | some l1, some l2 =>
-      let wl := addWatch wl l1 #[idx]
-      let wl := addWatch wl l2 #[idx]
-      ({ c with wls := Watched.two_plus l1 l2 }, wl)
-  | some l1, none =>
-      let wl := addWatch wl l1 #[idx]
-      ({ c with wls := Watched.unit_clause l1 }, wl)
-  | _, _ =>
-      (c, wl)
--/
 
 /- A function that takes in a given formula and initializes
    the solver's state!

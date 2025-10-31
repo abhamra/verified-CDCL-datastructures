@@ -46,20 +46,12 @@ structure Lit where
 
 /- Helper functions for Lit go here -/
 
-inductive Watched where
-  | satisfied
-  | conflict
-  | unit_clause (watch : Lit)
-  | two_plus (watch1 : Lit) (watch2 : Lit)
-  deriving Repr, Inhabited
-
 /- A clause is a disjunction of literals
    NOTE: We are assuming this because of CNF
 -/
 structure Clause where
   lits    : Array Lit
   learnt  : Bool := false -- default
-  wls     : Watched
   deriving Repr, Inhabited
 
 /- A formula is a conjunction of clauses

@@ -1,5 +1,8 @@
 /- This file defines the Assignment Trail structure, which is a stack-based storage for Literals
 and their corresponding decision levels, for use in branching and conflict analysis decisions
+
+   NOTE: We should have an invariant that shows monotonically increasing stack
+   only, for our use cases
 -/
 
 import VerifiedCdclDatastructures.Basic
