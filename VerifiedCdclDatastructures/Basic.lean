@@ -2,6 +2,7 @@ import Std.Data.HashSet
 import Std.Data.HashMap
 import Batteries.Data.BinomialHeap
 
+
 /- TODO:
   - Create Literal structure: Is this necessary, or can we just use bools?
     I imagine we might need an actual new Lit construct because we want to hold

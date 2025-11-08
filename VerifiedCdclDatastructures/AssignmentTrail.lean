@@ -51,6 +51,29 @@ def top (t : AssignmentTrail) : Option (CDCL.Lit × Nat) :=
 def isEmpty (t : AssignmentTrail) : Bool :=
   Stack.isEmpty t.stack
 
+-- converts AT to a list, helper
+def toList (t : AssignmentTrail) : List (CDCL.Lit × Nat) :=
+  let rec go : Stack (CDCL.Lit × Nat) -> List (CDCL.Lit × Nat)
+  | Stack.empty => []
+  | Stack.push x s' => x :: go s'
+  go t.stack
+
+def decisionLevels (t : AssignmentTrail) : List Nat :=
+  toList t |>.map (·.2)
+
+def varsAtLevel (t : AssignmentTrail) (dl : Nat) : List CDCL.Var :=
+  toList t |>.filterMap (fun (l, lvl) => if lvl = dl then some l.var else none)
+
+-- helper for finding decision level of a given variable
+def dlOfVar (t : AssignmentTrail) (v : CDCL.Var) : Option Nat :=
+  (t.toList.find? (·.1.var = v)).map (·.2)
+
+-- finds the last assigned literal, literal with the highest DL in clause
+def findLastAssigned (t : AssignmentTrail) (c : Clause) : CDCL.Lit :=
+  sorry
+  -- TODO: Fix? No idea why it ain't working, will just use for later
+  -- c.lits.getMax? (AssignmentTrail.dlOfVar ·.var < AssignmentTrail.dlOfVar ·.var)
+
 end AssignmentTrail
 
 -- TODO: Prove the functionality of the stack, and then semantics of the AssignmentTrail

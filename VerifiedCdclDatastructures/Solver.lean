@@ -1,5 +1,5 @@
-import VerifiedCdclDatastructures.Basic
 import VerifiedCdclDatastructures.AssignmentTrail
+import VerifiedCdclDatastructures.Basic
 namespace CDCL.Solver
 /-- Solver state. -/
 structure Solver where
@@ -132,6 +132,95 @@ def decide {α : Type} [h : Heuristic α] (s : Solver) : Solver :=
       trail        := s.trail.push l dl -- we add to the assignment trail @ decision time!
     }
 
+-- (Helper) look at all the clauses and pick unseen clauses that contain l,
+-- then return the unseen clause containing l as well as an unseen literal in l
+def pickIncomingEdge (s : Solver) (l : CDCL.Lit) (seenClauses : Std.HashSet Nat) : (Clause × CDCL.Lit) :=
+  sorry
+  -- let candidate_clauses := s.clauses.clauses.filter
+  -- TODO: Finish this!
+
+-- add intermediary assignments to res tree, bookkeeping?
+def resolveOnVar (c1 c2 : Clause) (piv : CDCL.Var) : Clause :=
+  let keepFrom (c : Clause) : Array Lit :=
+    c.lits.foldl (fun acc l => if l.var == piv then acc else if acc.elem l then acc else acc.push l) #[]
+
+  let merged := (keepFrom c1) ++ (keepFrom c2)
+  { lits := merged, learnt := true }
+  
+
+/- Stub for clause learning. Use this for 1-UIP, it takes
+   in the current solver state and a conflict clause, and
+   generates a learnt conflict clause via the first unique
+   implication point formulation
+-/
+def learn (s : Solver) (conflict : Clause) : Clause :=
+  /-
+    1. Start from conflict clause, set the "curr" clause to be the
+       negation of all literals in the clause. For example, with
+       conflict = (¬x1 ∨ ¬x2), curr becomes (x1 ∨ x2)
+    2. In the current clause c, find the last assigned literal l
+    3. Pick an incoming edge to l (a clause c' that contains literal l)
+       and pick an unseen literal in that clause that points to it
+    4. Resolve curr and c'
+    5. set curr = resolve curr c'
+    6. repeat until only one literal in curr @ s.dl
+    7. set clause to learnt = True
+    8. ya termine
+  -/
+  let seenClauses : Std.HashSet Nat := Std.HashSet.empty
+  let dl := s.decision_lvl
+
+  let rec loop (curr : Clause) (seen : Std.HashSet CDCL.Var) : Clause :=
+    let lits_at_dl :=
+      curr.lits.filter (fun (l : Lit) =>
+        let var_dl := AssignmentTrail.dlOfVar s.trail l.var |>.getD 0 -- default 0 else var_dl
+        var_dl = dl)
+    if lits_at_dl.size == 1 then curr else 
+      -- find last assigned literal l
+      let last_assigned_lit := AssignmentTrail.findLastAssigned s.trail curr
+      -- pick incoming edge
+      let (clause_that_implied, new_lit) := pickIncomingEdge s last_assigned_lit seenClauses
+      -- resolve clause_that_implied and curr 
+      -- NOTE: we know that last_assigned_lit's sign in curr is the opposite of its sign in
+      -- clause_that_implied
+
+      -- TODO: Figure out if this correctly shadows
+      let curr := resolveOnVar curr clause_that_implied last_assigned_lit.var
+      loop curr seen -- FIXME: Need to prove this recurses correctly, show termination!!!
+
+  let curr := { conflict with lits := conflict.lits.map (fun l => { l with sign := !l.sign } ) }
+
+  loop curr (Std.HashSet.empty)
+
+def secondMax (xs : Array Nat) : Option Nat :=
+  if xs.size < 2 then none
+  else
+    let (_, max2) := 
+      xs.foldl
+      (init := (0, 0))
+      fun (m1, m2) x => 
+      if x > m1 then (x, m1)
+      else if x >= m2 then (m1, x)
+      else (m1, m2)
+  some max2
+
+-- #eval secondMax #[1, 5, 3, 4, 5]  -- some 4
+-- #eval secondMax #[7]              -- none
+
+-- want 2nd highest dl
+def computeBackjumpLevel (s : Solver) (conflict : Clause) : Nat :=
+  -- get list of dls of all vars
+  let dls : Array Nat := conflict.lits.map (fun l => (AssignmentTrail.dlOfVar s.trail l.var |>.getD 0))
+  -- get 2nd highest value
+  (secondMax dls).getD 0 -- NOTE: Is this safe to do? because 0 is a "dangerous" val for backjumping
+
+  -- let secondHighest? : Option Nat :=
+  --   let uniq := dls.toList.eraseDups |>.qsort (· > ·)
+  --   match uniq with
+  --   | _ :: second :: _ => some second
+  --   | _ => none
+  -- secondHighest?.getD 0 
+
 /- Stub for conflict analysis. This should, given some solver and
    initial conflict clause, use the 1-UIP scheme to find new conflict
    clauses and add them to the solver's ClauseDB. Then, it will
@@ -148,30 +237,30 @@ def analyzeConflict (s : Solver) (conflict : Clause) : Solver × Nat :=
   -- update solver activity, then
   let s' := { s with activity := updated_activity };
 
-  -- NOTE: Not doing this rn, no real learning cuz DPLL + VSIDS
-  /- find a new conflict clause and
-    add it to the clausedb, then
+
+  -- find a new conflict clause and
+  let new_conflict := learn s' conflict
+  -- add it to the clausedb, then
    let new_clauses : Array Clause := s'.clauses.clauses.push new_conflict
    let new_db : ClauseDB := { s'.clauses with clauses := new_clauses }
-   let s'' := { s' with clauses := new_db } -/
+   let s'' := { s' with clauses := new_db }
 
   -- figure out backjump level. We do this by selecting the variable
   -- with the 2nd highest decision level.
   -- NOTE: The highest deicision level is the level of our conflict, so we
   -- want at least one before that, to prevent that same conflict from arising
- -- NOTE: If we don't do clause learning, then backjump level is always
- --       the curr level - 1
-  (s', s'.decision_lvl - 1)
+  -- NOTE: If we don't do clause learning, then backjump level is always
+  --       the curr level - 1
 
-/- Stub for clause learning. -/
-def learn (s : Solver) (c : Clause) : Solver :=
-  { s with clauses.clauses := s.clauses.clauses.push c }
+  -- get max dl from new_conflict
+  let backjumpLvl := computeBackjumpLevel s' new_conflict
+
+  (s', backjumpLvl)
 
 /- Stub for backjumping/backtracking. -/
 def backjump (s : Solver) (lvl : Nat) : Solver :=
   -- TODO: trim trail, reset assignment
   { s with decision_lvl := lvl }
-
 
 /- A function that takes in a given formula and initializes
    the solver's state!
