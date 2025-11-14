@@ -77,6 +77,7 @@ structure Assignment where
 
 /- Helper functions for Assignment go here -/
 
+namespace Assignment
 def assign (a : Assignment) (v : Var) (b : Bool) : Assignment :=
   -- only increment num_assigned if was originally empty!
   if Option.isNone (a.vals.get? v) then
@@ -85,6 +86,16 @@ def assign (a : Assignment) (v : Var) (b : Bool) : Assignment :=
       num_assigned := a.num_assigned + 1 }
   else
     { a with vals := a.vals.insert v b }
+
+def unassign (a : Assignment) (v : Var) : Assignment :=
+  match a.vals.get? v with
+  | some _ =>
+    { a with
+      vals := a.vals.erase v,
+      num_assigned := a.num_assigned - 1 }
+  | none => a
+
+end Assignment
 
 /- Invariant: Assume the ClauseDB has no duplicates,
    and never produces clauses containing duplicates

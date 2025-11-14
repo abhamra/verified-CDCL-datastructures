@@ -1,5 +1,5 @@
-import VerifiedCdclDatastructures.AssignmentTrail
 import VerifiedCdclDatastructures.Basic
+import VerifiedCdclDatastructures.AssignmentTrail
 namespace CDCL.Solver
 /-- Solver state. -/
 structure Solver where
@@ -12,6 +12,7 @@ structure Solver where
   sat_clauses  : Std.HashSet Nat := {} -- Stores _indices_ to clauses in ClauseDB
   prop_reason  : Array (Option Nat) := #[] -- Stores variable whose assignment led to propagation. prop_reason[n] = m → n is forced to ⊤/⊥ because of m.
   activity     : VsidsActivity
+  -- TODO: Add resolution tree here?
   -- deriving Repr
 
 /- Decision heuristics (VSIDS, LRB, etc.) can be plugged in. -/
@@ -128,7 +129,7 @@ def decide {α : Type} [h : Heuristic α] (s : Solver) : Solver :=
     let dl := s.decision_lvl + 1
     { s with
       decision_lvl := dl,
-      assignment   := assign s.assignment v true  -- for now, just pick True
+      assignment   := Assignment.assign s.assignment v true  -- for now, just pick True
       trail        := s.trail.push l dl -- we add to the assignment trail @ decision time!
     }
 
@@ -204,8 +205,8 @@ def secondMax (xs : Array Nat) : Option Nat :=
       else (m1, m2)
   some max2
 
--- #eval secondMax #[1, 5, 3, 4, 5]  -- some 4
--- #eval secondMax #[7]              -- none
+#eval secondMax #[1, 5, 3, 4, 5]  -- some 5
+#eval secondMax #[7]              -- none
 
 -- want 2nd highest dl
 def computeBackjumpLevel (s : Solver) (conflict : Clause) : Nat :=
@@ -257,10 +258,22 @@ def analyzeConflict (s : Solver) (conflict : Clause) : Solver × Nat :=
 
   (s', backjumpLvl)
 
+
+-- Uses the kept variables from the trail to update the assignment!
+def assignmentFromTrail (s : Solver) (keepVars : Std.HashSet Var) : Assignment :=
+  let a := s.assignment
+  a.vals.toList.foldl (fun acc (v, _) => if keepVars.contains v then acc else Assignment.unassign acc v) a
+
 /- Stub for backjumping/backtracking. -/
 def backjump (s : Solver) (lvl : Nat) : Solver :=
-  -- TODO: trim trail, reset assignment
-  { s with decision_lvl := lvl }
+  let trimmedTrail := AssignmentTrail.trimToLevel s.trail lvl
+  let keepVars : Std.HashSet Var :=
+    (AssignmentTrail.toList trimmedTrail).map (fun (lit, _) => lit.var) |> Std.HashSet.ofList
+  let newAssign := assignmentFromTrail s keepVars
+  let newPropReason : Array (Option Nat) := s.prop_reason.mapIdx (fun v old => if keepVars.contains v then old else none)
+
+  -- TODO: Fix the resolution tree as well, if we add it to the Solver? 
+  { s with trail := trimmedTrail, assignment := newAssign, prop_reason := newPropReason, decision_lvl := lvl }
 
 /- A function that takes in a given formula and initializes
    the solver's state!

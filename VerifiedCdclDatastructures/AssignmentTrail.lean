@@ -28,6 +28,13 @@ def Stack.isEmpty {α : Type} : Stack α → Bool
   | empty => true
   | _ => false
 
+def popUntilLevel : Stack (CDCL.Lit × Nat) → Nat → Stack (CDCL.Lit × Nat)
+  | Stack.empty, _ => Stack.empty
+  | Stack.push (lit, dl) rest, lvl =>
+    if dl > lvl then
+      popUntilLevel rest lvl
+    else Stack.push (lit, dl) rest
+
 /- The assignment trail holds a stack of literals for use in the Solver process -/
 structure AssignmentTrail where
   stack : Stack (CDCL.Lit × Nat) := Stack.empty
@@ -73,6 +80,9 @@ def findLastAssigned (t : AssignmentTrail) (c : Clause) : CDCL.Lit :=
   sorry
   -- TODO: Fix? No idea why it ain't working, will just use for later
   -- c.lits.getMax? (AssignmentTrail.dlOfVar ·.var < AssignmentTrail.dlOfVar ·.var)
+
+def trimToLevel (t : AssignmentTrail) (lvl : Nat) : AssignmentTrail :=
+  { t with stack := popUntilLevel t.stack lvl }
 
 end AssignmentTrail
 
