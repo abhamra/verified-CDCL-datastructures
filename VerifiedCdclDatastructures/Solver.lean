@@ -320,3 +320,31 @@ partial def solve? [Heuristic α] (s : Solver) : Except ResolutionTree Assignmen
 end CDCL.Solver
 
 -- TODO: Theorems about solver functions!
+
+/- /// NOTES FOR NO RELEARNING THEOREM IDEAS ///
+   Proof from slides is as follows:
+   - Assume state is (M, N, U, D) for M = trail, N = multiset of *initial* clauses, 
+     U = multiset of *learned* clauses, D = a conflict clause ∨ T(rue), this is how the
+     CDCL_W calculus was defined in the paper "A Verified SAT Solver Framework with [...] Incrementality"
+   - Assume we initialize CDCL_W in the state (ε, N, ∅, T)
+   - Theorem says we can't have D ∈ N ∪ U, otherwise we'd have reached the same solver state;
+     intuitively this is impossible because creating the conflict clause should ideally ensure that
+     the same conflict is never reached at the same solver state, it would have been caught earlier
+     by unit propagation.
+   - NOTE: Need to correctly reason about the *trail* and perhaps the current state of the resolution tree?
+   - Other note: We don't have the state of the resolution tree currently stored in the solver
+
+     Proof: https://pmc.ncbi.nlm.nih.gov/articles/PMC6044257/pdf/10817_2018_Article_9455.pdf
+     on page 17. Theorem 10.
+   - AFC that CDCL learns the same clause twice, i.e. it reaches the same internal state
+     with the same learned clause D, state (M, N, U, D ∨ L) where a backjump is possible
+     and D ∨ L ∈ N ∪ U (multiset union) and D ∨ L is a "derived or learned clause"
+   - Need to do some sort of layer-by-layer analysis
+   - The trail M can be decomposed as Kₙ...K₂K₁† M₂K† M₁
+     Decision literals (†) from propagated literals
+   - there's more, obviously, will finish later?
+
+   - Invariant we can try instead: the existence of a literal with the highest level in any conflict
+     i.e. for every conflict clause, there must be a literal with the highest DL (?)
+   - I assume this means the 1-UIP learned clause, and not the immediate conflict clause
+-/
