@@ -4,16 +4,32 @@ namespace CDCL.Solver
 /-- Solver state. -/
 structure Solver where
   num_vars     : Nat
-  num_clauses  : Nat
   clauses      : ClauseDB
   assignment   : Assignment
   decision_lvl : Nat := 0
   trail        : AssignmentTrail
-  sat_clauses  : Std.HashSet Nat := {} -- Stores _indices_ to clauses in ClauseDB
-  prop_reason  : Array (Option Nat) := #[] -- Stores variable whose assignment led to propagation. prop_reason[n] = m → n is forced to ⊤/⊥ because of m.
+  -- Stores _indices_ to clauses in ClauseDB
+  sat_clauses  : Std.HashSet Nat := {}
+  -- Stores clause whose unit status led to propagation. prop_reason[n] = m → n is forced to ⊤/⊥ because of clause m.
+  prop_reason  : Vector (Option Nat) num_vars := Vector.replicate num_vars none 
   activity     : VsidsActivity
   -- TODO: Add resolution tree here?
   -- deriving Repr
+
+def Solver.num_clauses (s : Solver) : Nat := s.clauses.clauses.size
+
+/- A function that takes in a given formula and initializes
+   the solver's state!
+-/
+def Solver.init (f : Formula) : Solver :=
+  let num_vars := f.num_vars
+  let init_clauses := f.clauses
+  let db : ClauseDB := { clauses := init_clauses }
+  let trail : AssignmentTrail := { stack := Stack.empty }
+  let activity : VsidsActivity := { activities := Array.replicate num_vars 0.0,
+                                    heap := Batteries.BinomialHeap.empty }
+  { num_vars := num_vars, clauses := db, assignment := Assignment.ofNumVars num_vars
+    decision_lvl := 0, trail := trail, activity := activity }
 
 /- Decision heuristics (VSIDS, LRB, etc.) can be plugged in. -/
 class Heuristic (α : Type) where
@@ -25,9 +41,9 @@ class Heuristic (α : Type) where
 def naivePickVar (s : Solver) : Option Var :=
   let vars := List.range s.num_vars
   vars.findSome? (fun v =>
-    match s.assignment.vals.get? v with
-    | none   => some v   -- unassigned
-    | some _ => none)
+    if s.assignment.isAssigned v 
+    then none
+    else some v)
 
 /- Uses the Variable State Independent Decaying Sum
    (VSIDS) Decision Heuristic!
@@ -35,15 +51,16 @@ def naivePickVar (s : Solver) : Option Var :=
    TODO:
    - What invariants do we care about?
    - Need to show that this function terminates (we eventually get through all vars)
+   - We "exhuast all variables" when...
 -/
 partial def vsidsPickVar (s : Solver) : Option Var :=
   match VsidsActivity.popMax s.activity with
   | none => none
   | some (var, activity') =>
     -- care only about unassigned vars
-    match s.assignment.vals.get? var with
-    | some _ => vsidsPickVar { s with activity := activity' } -- skip assigned vars, try again
-    | none => some var
+    if s.assignment.isAssigned var
+    then vsidsPickVar { s with activity := activity' } -- skip assigned vars, try again
+    else some var
 
 variable (Naive : Type)
 instance : Heuristic Naive where
@@ -54,8 +71,6 @@ instance : Heuristic VSIDS where
   pickVar := vsidsPickVar
 
 abbrev BCPResult := Except (Solver × Clause) Solver
-#check Array.foldlM
-#check Except
 
 -- NOTE:
 -- DPLL + VSIDS proof
@@ -63,69 +78,93 @@ abbrev BCPResult := Except (Solver × Clause) Solver
 -- Discover invariants on the behavior of VSIDS and formalize & prove them.
 -- Cover all invariants in the presentation, including those Siddartha discovered.
 
+def bcpTests : List (Solver × BCPResult) :=
+  [let s1 := Solver.init { 
+    num_vars := 2
+    num_clauses := 2
+    clauses := #[
+      { lits := #[1, 2] },
+      { lits := #[-2] }
+      ]
+  }
+  (s1, Except.ok {
+    s1 with 
+    clauses := {
+      s1.clauses with
+      num_unassigned := #[1, 0]
+    }
+    assignment := s1.assignment.assign 3 false
+    sat_clauses := s1.sat_clauses.insert 1
+  })]
+
 /- If satisfied or unknown, returns (ok s), otherwise returns (error (s, conflict))
 -/
 def bcp (s : Solver) : BCPResult :=
   -- NOTE: No 2WL -- too difficult to prove.
 
-  -- We actually only want to do this for literals that are unit.
-  let propOne (s : Solver) (v : Var): BCPResult :=
-    -- Check all the clauses to see if they contain `v`.
-    let v_pos : Lit := { var := v, sign := true }
-    let v_neg : Lit := { var := v, sign := false }
-    -- Propagate positively
-    let sat_clauses' := s.sat_clauses.insertMany
-      (Array.filter (λ (c_ind : Nat) =>
-        not (s.sat_clauses.contains c_ind) && s.clauses.clauses[c_ind]!.lits.elem v_pos)
-        (Array.range s.clauses.clauses.size))
+  -- BCP can be implemented naively by doing the following:
+  -- Where there are unassigned unit clauses in the formula...
+  -- Find any unit clause. Assign its variable `v` to the approriate value. (pos -> ⊤, neg → ⊥)
+  -- Scan the non-unit clauses for instances of `v` and `¬v`.
+  -- If you find `v`, mark the clause as satisfied.
+  -- If you find `¬v`, prune the variable from the clause (e.g. decrease "unassigned" count)
 
-    -- Propagate negatively.
+  -- Get the indices of the current unit clauses.
+  let uc_inds := 
+    Array.filterMap (λ (ci, n) => 
+      if n == 1
+        then some ci
+        else none)
+    (Array.zip (Array.range s.num_clauses) s.clauses.num_unassigned)
 
-    Except.ok { s with
-                sat_clauses := sat_clauses' }
+  -- Then, for each unit clause, we fold and compute a new list of unit clauses.
+  -- We show termination by arguing `decreasing_by (total - num_assigned)`
+  -- Return an array with new unit clauses.
+  let (s, uc_inds) := uc_inds.foldl (λ (s, next_ucis) uci =>
+    -- god this is slow
+    let uc := s.clauses.clauses[uci]!
+    let lit := (uc.lits.find? (λ (l : Lit) => ¬(s.assignment.isAssigned l.var))).get!
+    let s := { s with 
+      assignment := s.assignment.assign lit.var (lit > 0)
+      clauses := s.clauses.propLit uci
+      prop_reason := s.prop_reason.set! lit.var (some uci)
+    }
 
-  -- Find which literals are unit. (Maybe we could just maintain this as we go along?)
+    Fin.foldl s.num_clauses (λ ((s' : Solver), (units : Array Nat)) i =>
+      -- Maybe we could pass proof values around in the solver :)
+      -- These clauses are just my attempt at exploring what would satisfy
+      -- Lean's bound-checking requirements.
+      have hs : i < s'.num_clauses := sorry
+      have hp : i < s'.prop_reason.size := sorry
+      have hvc : s'.num_vars < s'.num_clauses := sorry
+      
+      let prop_clause := s'.clauses.clauses[i]
+      if ¬(s'.sat_clauses.contains i)
+      then if prop_clause.lits.contains lit
+        then ({ s' with sat_clauses := s'.sat_clauses.insert i }, units)
+        else if prop_clause.lits.contains (-lit)
+          then 
+            -- TODO: Maybe remove the panicking? Don't know if it even matters.
+            -- I wonder why type inference sometimes has a stroke...
+            let s' : Solver := { s' with clauses := s'.clauses.propLit i }
+            have hu : i < s'.clauses.num_unassigned.size := sorry
+            let units := if s'.clauses.num_unassigned[i] == 1 then units.push i else units
+            (s', units)
+          else (s', units)
+      else (s', units)) (s, #[])
+  ) (s, #[])
 
-  -- Naively folding
-  Array.foldlM propOne s (Array.range s.num_vars)
-
-/-
-def bcp2WL (s : Solver) : Solver × Option Clause :=
-  -- This thing returns the state of the solver or the clause that led to a conflict.
-  let rec propagate (s : Solver) (prop_lit : Lit) : Solver × Option Clause :=
-    -- It's starting to make sense.
-    let prop_lit := { prop_lit with dl := s.decision_lvl }
-    let next_at := s.trail.push prop_lit
-    let neg_lit := { prop_lit with sign := ¬prop_lit.sign }
-
-    -- Propagate positively through `init`
-    -- No conflicts will arise (we set him to true)
-    let sat_clauses := s.watch_list[prop_lit]!
-
-    -- We don't know for sure if ¬lit is represented, in which case we iterate over
-    let resolving_clauses := s.watch_list.getD neg_lit #[]
-
-    sorry
-
-  let litIfUnit (c : Clause) : Option Lit :=
-    match c.wls with
-    | CDCL.Watched.unit_clause l => some l
-    | _ => none
-
-  -- Find a unit clause. If there are none, we are done.
-  match Array.findSome? litIfUnit s.clauses.clauses with
-  | some lit =>
-    -- Start propagating, continuing the loop if we find more unit clauses.
-    propagate s lit
-  | none => (s, none) -- We are done, no resolution can happen.
--/
+  -- If we don't discover any more unit clauses, we are done propagating. Now to pass judgment.
+  if uc_inds.isEmpty
+    then sorry
+    else sorry
 
 def decide {α : Type} [h : Heuristic α] (s : Solver) : Solver :=
   match h.pickVar s with
   | none   => s  -- no unassigned variable left
   | some v =>
     -- increment decision level and assign the variable
-    let l : Lit := { var := v, sign := true }
+    let l : Lit := v
     let dl := s.decision_lvl + 1
     { s with
       decision_lvl := dl,
@@ -168,7 +207,7 @@ def learn (s : Solver) (conflict : Clause) : Clause :=
     7. set clause to learnt = True
     8. ya termine
   -/
-  let seenClauses : Std.HashSet Nat := Std.HashSet.empty
+  let seenClauses : Std.HashSet Nat := Std.HashSet.emptyWithCapacity
   let dl := s.decision_lvl
 
   let rec loop (curr : Clause) (seen : Std.HashSet CDCL.Var) : Clause :=
@@ -189,9 +228,9 @@ def learn (s : Solver) (conflict : Clause) : Clause :=
       let curr := resolveOnVar curr clause_that_implied last_assigned_lit.var
       loop curr seen -- FIXME: Need to prove this recurses correctly, show termination!!!
 
-  let curr := { conflict with lits := conflict.lits.map (fun l => { l with sign := !l.sign } ) }
+  let curr := { conflict with lits := conflict.lits.map (λ l => -l) }
 
-  loop curr (Std.HashSet.empty)
+  loop curr (Std.HashSet.emptyWithCapacity)
 
 def secondMax (xs : Array Nat) : Option Nat :=
   if xs.size < 2 then none
@@ -234,7 +273,7 @@ def analyzeConflict (s : Solver) (conflict : Clause) : Solver × Nat :=
   -- get all vars from clause, then
   let conflict_vars := conflict.lits.map (·.var) -- ignores sign
   -- bump and decay all, then
-  let updated_activity := VsidsActivity.bump_and_decay_all s.activity conflict_vars
+  let updated_activity := s.activity.bumpAndDecayAll conflict_vars
   -- update solver activity, then
   let s' := { s with activity := updated_activity };
 
@@ -256,13 +295,13 @@ def analyzeConflict (s : Solver) (conflict : Clause) : Solver × Nat :=
   -- get max dl from new_conflict
   let backjumpLvl := computeBackjumpLevel s' new_conflict
 
-  (s', backjumpLvl)
+  (s'', backjumpLvl)
 
 
 -- Uses the kept variables from the trail to update the assignment!
 def assignmentFromTrail (s : Solver) (keepVars : Std.HashSet Var) : Assignment :=
   let a := s.assignment
-  a.vals.toList.foldl (fun acc (v, _) => if keepVars.contains v then acc else Assignment.unassign acc v) a
+  Nat.fold s.num_vars (fun v _ acc => if keepVars.contains v then acc else acc.unassign v) a
 
 /- Stub for backjumping/backtracking. -/
 def backjump (s : Solver) (lvl : Nat) : Solver :=
@@ -270,25 +309,10 @@ def backjump (s : Solver) (lvl : Nat) : Solver :=
   let keepVars : Std.HashSet Var :=
     (AssignmentTrail.toList trimmedTrail).map (fun (lit, _) => lit.var) |> Std.HashSet.ofList
   let newAssign := assignmentFromTrail s keepVars
-  let newPropReason : Array (Option Nat) := s.prop_reason.mapIdx (fun v old => if keepVars.contains v then old else none)
+  let newPropReason := s.prop_reason.mapIdx (fun v old => if keepVars.contains v then old else none)
 
   -- TODO: Fix the resolution tree as well, if we add it to the Solver? 
   { s with trail := trimmedTrail, assignment := newAssign, prop_reason := newPropReason, decision_lvl := lvl }
-
-/- A function that takes in a given formula and initializes
-   the solver's state!
--/
-def initSolver (f : Formula) : Solver :=
-  let num_vars := f.num_vars
-  let num_clauses := f.num_clauses
-  let init_clauses := f.clauses
-  let db : ClauseDB := { clauses := init_clauses }
-  let trail : AssignmentTrail := { stack := Stack.empty }
-  let activity : VsidsActivity := { activities := Array.replicate num_vars 0.0,
-                                    heap := Batteries.BinomialHeap.empty }
-  { num_vars := num_vars, num_clauses := num_clauses, clauses := db,
-    assignment := { vals := {}, num_assigned := 0 },
-    decision_lvl := 0, trail := trail, activity := activity }
 
 /- A function that does all of the actual solving, and returns
    either a satisfying assignment to the literals, or none
@@ -299,8 +323,8 @@ def initSolver (f : Formula) : Solver :=
 partial def solve? [Heuristic α] (s : Solver) : Except ResolutionTree Assignment :=
   match bcp s with
   | Except.ok s' =>
-    -- if all variables assigned, we have SAT!
-    if s'.assignment.vals.size == s'.assignment.num_assigned then
+    -- This assignment satisfies all clauses!
+    if s'.sat_clauses.size == s'.num_clauses then
        Except.ok s'.assignment
     else
       -- branching!

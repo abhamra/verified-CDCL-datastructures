@@ -69,11 +69,11 @@ def decisionLevels (t : AssignmentTrail) : List Nat :=
   toList t |>.map (·.2)
 
 def varsAtLevel (t : AssignmentTrail) (dl : Nat) : List CDCL.Var :=
-  toList t |>.filterMap (fun (l, lvl) => if lvl = dl then some l.var else none)
+  toList t |>.filterMap (fun (l, lvl) => if lvl = dl then some l.natAbs else none)
 
 -- helper for finding decision level of a given variable
 def dlOfVar (t : AssignmentTrail) (v : CDCL.Var) : Option Nat :=
-  (t.toList.find? (·.1.var = v)).map (·.2)
+  (t.toList.find? (·.1.natAbs = v)).map (·.2)
 
 -- finds the last assigned literal, literal with the highest DL in clause
 def findLastAssigned (t : AssignmentTrail) (c : Clause) : CDCL.Lit :=

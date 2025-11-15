@@ -4,10 +4,6 @@ import Batteries.Data.BinomialHeap
 
 
 /- TODO:
-  - Create Literal structure: Is this necessary, or can we just use bools?
-    I imagine we might need an actual new Lit construct because we want to hold
-    its sign (a vs ¬a, for example). We likely also want each clause to hold its
-    decision level, etc.
   - Clauses: Most of the reading I've done has suggested that we basically *have* to
     use the 2WL scheme (for CDCL), and that seems to use a LL and stack in conjunction with each
     other (read more about this!) For each clause in the formula, we want to know if it
@@ -23,29 +19,19 @@ import Batteries.Data.BinomialHeap
   - Other lazy data structures where possible?, I presume
 -/
 
-/- Vars are just identifiers, for some formula
-   with variables x0, x1, x2, ..., just use
-   0, 1, 2, ... in lookups
--/
 namespace CDCL
 
-abbrev Var := Nat
-
-/- A literal is a variable with an associated sign
-   like ¬p, or q
+/- Vars are just identifiers, for some formula
+   with variables x1, x2, x3, ..., just use
+   1, 2, 3, ... in lookups
 -/
-structure Lit where
-  var  : Var
-  sign : Bool := true -- true => var, false => ¬var
-  -- dl   : Nat := 0 -- decision level
-  /- also add from_unit : Option Nat for the case
-     if a clause was learnt via unit resolution,
-     which clause caused that? have a ref to it
-     (idea from IsaSAT TWL paper)
-  -/
-  deriving Repr, BEq, DecidableEq, Hashable
-
-/- Helper functions for Lit go here -/
+abbrev Var := Nat
+/- A literal is a variable with an associated sign
+   like ¬p, or q. Positive literals are true, negative literals are false.
+   Counting starts at one.
+-/
+abbrev Lit := Int
+def Lit.var (l : Lit) := l.natAbs
 
 /- A clause is a disjunction of literals
    NOTE: We are assuming this because of CNF
@@ -61,39 +47,58 @@ structure Clause where
 
    NOTE: Do we need this structure in particular?
 -/
+
 structure Formula where
   num_vars    : Nat
   num_clauses : Nat
   clauses     : Array Clause
   deriving Repr
 
+inductive AssignState where
+  | Unassigned
+  | True
+  | False
+  deriving Repr, Inhabited, BEq
+
+def AssignState.fromBool : Bool → AssignState := λ
+  | true => AssignState.True
+  | false => AssignState.False
+
 /- An assignment for a formula is a mapping from vars
    to truth values
 -/
 structure Assignment where
-  vals : Std.HashMap Var Bool := {}
+  vals : Array AssignState
   num_assigned : Nat := 0 -- works in conjunction with len vals
   deriving Repr
 
 /- Helper functions for Assignment go here -/
 
 namespace Assignment
+
+def ofNumVars (num_vars : Nat) : Assignment :=
+  { vals := Array.replicate num_vars .Unassigned }
+
+def isAssigned (a : Assignment) (v : Var) : Bool :=
+  a.vals[v]! != .Unassigned
+
 def assign (a : Assignment) (v : Var) (b : Bool) : Assignment :=
   -- only increment num_assigned if was originally empty!
-  if Option.isNone (a.vals.get? v) then
+  let vals' := a.vals.set! v (AssignState.fromBool b)
+  if a.isAssigned v then
     { a with
-      vals := a.vals.insert v b,
+      vals := vals'
       num_assigned := a.num_assigned + 1 }
   else
-    { a with vals := a.vals.insert v b }
+    { a with vals := vals' }
 
 def unassign (a : Assignment) (v : Var) : Assignment :=
-  match a.vals.get? v with
-  | some _ =>
+  match a.vals[v]! with
+  | .Unassigned => a
+  | _ =>
     { a with
-      vals := a.vals.erase v,
+      vals := a.vals.set! v .Unassigned,
       num_assigned := a.num_assigned - 1 }
-  | none => a
 
 end Assignment
 
@@ -104,13 +109,21 @@ structure ClauseDB where
   -- init_clauses   : Array Clause -- from formula
   -- learnt_clauses : Array Clause -- from conflict analysis
   clauses : Array Clause -- indices >= #vars -> learnt clauses.
+  num_unassigned : Array Nat := clauses.map (λ c => c.lits.size)
   -- FIXME: Per paper, change this to store both at same time?
   deriving Repr
 
 /- Helper functions for ClauseDB go here -/
 
+namespace ClauseDB
+
 def addLearnt (db : ClauseDB) (c : Clause) : ClauseDB :=
   { db with clauses := db.clauses.push c }
+
+def propLit (db : ClauseDB) (c_ind : Nat) : ClauseDB :=
+  { db with num_unassigned := db.num_unassigned.modify c_ind (· - 1) }
+
+end ClauseDB
 
 /- Seen set, for conflict analysis etc. -/
 abbrev Seen := Std.HashSet Var
@@ -144,7 +157,7 @@ def updateHeap (a : VsidsActivity) (vars : Array Nat) : VsidsActivity :=
   let heap := vars.foldl (fun h v => h.insert (-(a.activities[v]!), v)) a.heap
   { a with heap := heap }
 
-def bump_and_decay_all (a : VsidsActivity) (vars : Array Nat) : VsidsActivity :=
+def bumpAndDecayAll (a : VsidsActivity) (vars : Array Nat) : VsidsActivity :=
   -- 1. Bump all v ∈ vars
   -- 2. Decay all vars (not just ∈ vars)
   -- 3. Update heap for all v ∈ vars with new activity value
@@ -154,7 +167,7 @@ def bump_and_decay_all (a : VsidsActivity) (vars : Array Nat) : VsidsActivity :=
 def test_bump_and_decay_all : Bool :=
   let initial : VsidsActivity := { activities := Array.replicate 3 0.0, var_inc := 1.0, decay := 0.5, heap := Batteries.BinomialHeap.empty }
   let vars_to_bump := #[0,2]
-  let updated := bump_and_decay_all initial vars_to_bump
+  let updated := bumpAndDecayAll initial vars_to_bump
   let acts := updated.activities
   -- Check activities:
   -- vars 0 and 2: (0 + 1) * 0.5 = 0.5
