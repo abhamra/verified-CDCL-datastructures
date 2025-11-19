@@ -48,10 +48,9 @@ structure Clause where
    NOTE: Do we need this structure in particular?
 -/
 
-structure Formula where
+structure Formula (num_clauses : Nat) where
   num_vars    : Nat
-  num_clauses : Nat
-  clauses     : Array Clause
+  clauses     : Vector Clause num_clauses
   deriving Repr
 
 inductive AssignState where
@@ -67,8 +66,8 @@ def AssignState.fromBool : Bool → AssignState := λ
 /- An assignment for a formula is a mapping from vars
    to truth values
 -/
-structure Assignment where
-  vals : Array AssignState
+structure Assignment (num_vars : Nat) where
+  vals : Vector AssignState num_vars
   num_assigned : Nat := 0 -- works in conjunction with len vals
   deriving Repr
 
@@ -76,13 +75,13 @@ structure Assignment where
 
 namespace Assignment
 
-def ofNumVars (num_vars : Nat) : Assignment :=
-  { vals := Array.replicate num_vars .Unassigned }
+def ofNumVars (num_vars : Nat) : Assignment num_vars :=
+  { vals := Vector.replicate num_vars .Unassigned }
 
-def isAssigned (a : Assignment) (v : Var) : Bool :=
+def isAssigned {nv : Nat} (a : Assignment nv) (v : Var) : Bool :=
   a.vals[v]! != .Unassigned
 
-def assign (a : Assignment) (v : Var) (b : Bool) : Assignment :=
+def assign {nv : Nat} (a : Assignment nv) (v : Var) (b : Bool) : Assignment nv :=
   -- only increment num_assigned if was originally empty!
   let vals' := a.vals.set! v (AssignState.fromBool b)
   if a.isAssigned v then
@@ -92,7 +91,7 @@ def assign (a : Assignment) (v : Var) (b : Bool) : Assignment :=
   else
     { a with vals := vals' }
 
-def unassign (a : Assignment) (v : Var) : Assignment :=
+def unassign {nv : Nat} (a : Assignment nv) (v : Var) : Assignment nv :=
   match a.vals[v]! with
   | .Unassigned => a
   | _ =>
@@ -105,11 +104,11 @@ end Assignment
 /- Invariant: Assume the ClauseDB has no duplicates,
    and never produces clauses containing duplicates
 -/
-structure ClauseDB where
+structure ClauseDB (nc : Nat) where
   -- init_clauses   : Array Clause -- from formula
   -- learnt_clauses : Array Clause -- from conflict analysis
-  clauses : Array Clause -- indices >= #vars -> learnt clauses.
-  num_unassigned : Array Nat := clauses.map (λ c => c.lits.size)
+  clauses : Vector Clause nc -- indices >= #vars -> learnt clauses.
+  num_unassigned : Vector Nat nc := clauses.map (λ c => c.lits.size)
   -- FIXME: Per paper, change this to store both at same time?
   deriving Repr
 
@@ -117,11 +116,17 @@ structure ClauseDB where
 
 namespace ClauseDB
 
-def addLearnt (db : ClauseDB) (c : Clause) : ClauseDB :=
-  { db with clauses := db.clauses.push c }
+def addLearnt {nv nc : Nat} (db : ClauseDB nc) (a : Assignment nv) (c : Clause) : ClauseDB (nc + 1) :=
+  let unassigned := c.lits.countP (λ lit => ¬a.isAssigned lit.var)
+  { db with clauses := db.clauses.push c 
+            num_unassigned := db.num_unassigned.push unassigned
+  }
 
-def propLit (db : ClauseDB) (c_ind : Nat) : ClauseDB :=
-  { db with num_unassigned := db.num_unassigned.modify c_ind (· - 1) }
+def Vector.modify {α : Type} {n : Nat} (v : Vector α n) (i : Fin n) (f : α → α) : Vector α n :=
+  v.set i (f v[i])
+
+def propLit {nc : Nat} (db : ClauseDB nc) (c_ind : Fin nc) : ClauseDB nc :=
+  { db with num_unassigned := Vector.modify db.num_unassigned c_ind (· - 1) }
 
 end ClauseDB
 
