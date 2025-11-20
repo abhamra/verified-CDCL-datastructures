@@ -114,6 +114,9 @@ structure ClauseDB (nc : Nat) where
 
 /- Helper functions for ClauseDB go here -/
 
+def Vector.modify {α : Type} {n : Nat} (v : Vector α n) (i : Fin n) (f : α → α) : Vector α n :=
+  v.set i (f v[i])
+
 namespace ClauseDB
 
 def addLearnt {nv nc : Nat} (db : ClauseDB nc) (a : Assignment nv) (c : Clause) : ClauseDB (nc + 1) :=
@@ -121,9 +124,6 @@ def addLearnt {nv nc : Nat} (db : ClauseDB nc) (a : Assignment nv) (c : Clause) 
   { db with clauses := db.clauses.push c 
             num_unassigned := db.num_unassigned.push unassigned
   }
-
-def Vector.modify {α : Type} {n : Nat} (v : Vector α n) (i : Fin n) (f : α → α) : Vector α n :=
-  v.set i (f v[i])
 
 def propLit {nc : Nat} (db : ClauseDB nc) (c_ind : Fin nc) : ClauseDB nc :=
   { db with num_unassigned := Vector.modify db.num_unassigned c_ind (· - 1) }
