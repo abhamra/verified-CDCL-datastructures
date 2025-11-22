@@ -1,5 +1,5 @@
-import VerifiedCdclDatastructures.Basic
 import VerifiedCdclDatastructures.AssignmentTrail
+import VerifiedCdclDatastructures.Basic
 
 import Mathlib.Tactic.Lemma
 import Init.Data.Array.Lemmas
@@ -252,11 +252,24 @@ theorem decide_preserves_ct {α : Type} [h : Heuristic (nv := nv) (nc := nc) α]
   all_goals simp
 
 -- (Helper) look at all the clauses and pick unseen clauses that contain l,
--- then return the unseen clause containing l as well as an unseen literal in l
-def pickIncomingEdge {nv nc : Nat} (s : Solver nv nc) (l : CDCL.Lit) (seenClauses : Std.HashSet Nat) : (Clause × CDCL.Lit) :=
-  sorry
-  -- let candidate_clauses := s.clauses.clauses.filter
-  -- TODO: Finish this!
+-- then return the unseen clause containing l
+def pickIncomingEdge {nv nc : Nat} (s : Solver nv nc) (l : CDCL.Lit) (seenClauses : Std.HashSet Nat) : Clause :=
+  -- first we filter to select over ONLY unseen clauses THAT contain l
+  let candidate_idx_clauses := (List.zip (List.range nc) s.clauses.clauses.toList)|>.filter (fun (i, c) => seenClauses.contains i)
+  let unseen_clauses := candidate_idx_clauses.map (fun (i, c) => c)
+  -- then for each unseen clause, if there is an unseen literal (literal not in trail OR
+  -- literal not assigned in solver.assignments) then we have that clause
+  let seen_lits := AssignmentTrail.litsToSet s.trail
+  let clause_to_resolve := unseen_clauses.find? (fun c => c.lits.any (fun lit => !seen_lits.contains lit))
+  -- FIXME: What happens if we can't find clause_to_resolve?
+  let c2r := clause_to_resolve.get! -- FIXME: THIS IS UNSAFE
+
+  -- NOTE: In order to accurately satisfy 1-UIP, we need to:
+  -- 1. Negate all literals in that clause and then
+  let c2r' := { c2r with lits := c2r.lits.map (λ lit => -lit) }
+  -- 2. OR-concat l to the end of the clause, so curr (which contains -l) can resolve with
+  --    this new clause
+  { c2r' with lits := c2r.lits.push l }
 
 -- add intermediary assignments to res tree, bookkeeping?
 def resolveOnVar (c1 c2 : Clause) (piv : CDCL.Var) : Clause :=
@@ -276,7 +289,7 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : Clause :=
   /-
     1. Start from conflict clause, set the "curr" clause to be the
        negation of all literals in the clause. For example, with
-       conflict = (¬x1 ∨ ¬x2), curr becomes (x1 ∨ x2)
+       conflict = (¬x1 ∨ x2), curr becomes (x1 ∨ ¬x2)
     2. In the current clause c, find the last assigned literal l
     3. Pick an incoming edge to l (a clause c' that contains literal l)
        and pick an unseen literal in that clause that points to it
@@ -295,10 +308,16 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : Clause :=
         let var_dl := AssignmentTrail.dlOfVar s.trail l.var |>.getD 0 -- default 0 else var_dl
         var_dl = dl)
     if lits_at_dl.size == 1 then curr else 
-      -- find last assigned literal l
-      let last_assigned_lit := AssignmentTrail.findLastAssigned s.trail curr
+      -- find last assigned literal l, then get ¬l
+      -- NOTE: This is sound because
+      let last_assigned_lit := -AssignmentTrail.findLastAssigned s.trail curr
       -- pick incoming edge
-      let (clause_that_implied, new_lit) := pickIncomingEdge s last_assigned_lit seenClauses
+      let clause_that_implied := pickIncomingEdge s last_assigned_lit seenClauses
+      -- FIXME: This clause, as is, is wrong, because say curr is (x1 ∨ ¬x2), and
+      -- x2 is the last assigned lit. Say also that c' = (¬x3 ∨ x4) flows "implied"
+      -- x2, then the clause we want to resolve with is (x3 ∨ ¬x4 ∨ x2)
+
+
       -- resolve clause_that_implied and curr 
       -- NOTE: we know that last_assigned_lit's sign in curr is the opposite of its sign in
       -- clause_that_implied

@@ -65,6 +65,9 @@ def toList (t : AssignmentTrail) : List (CDCL.Lit × Nat) :=
   | Stack.push x s' => x :: go s'
   go t.stack
 
+def litsToSet (t : AssignmentTrail) : Std.HashSet CDCL.Lit :=
+  Std.HashSet.ofList ((toList t).map (fun (l, _) => l))
+
 def decisionLevels (t : AssignmentTrail) : List Nat :=
   toList t |>.map (·.2)
 
