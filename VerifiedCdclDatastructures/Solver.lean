@@ -253,23 +253,28 @@ theorem decide_preserves_ct {α : Type} [h : Heuristic (nv := nv) (nc := nc) α]
 
 -- (Helper) look at all the clauses and pick unseen clauses that contain l,
 -- then return the unseen clause containing l
-def pickIncomingEdge {nv nc : Nat} (s : Solver nv nc) (l : CDCL.Lit) (seenClauses : Std.HashSet Nat) : Clause :=
+def pickIncomingEdge {nv nc : Nat} (s : Solver nv nc) (l : CDCL.Lit) (seenClauses : Std.HashSet Nat) : (Clause × Nat) :=
   -- first we filter to select over ONLY unseen clauses THAT contain l
-  let candidate_idx_clauses := (List.zip (List.range nc) s.clauses.clauses.toList)|>.filter (fun (i, c) => seenClauses.contains i)
+  let candidate_idx_clauses := (List.zip (List.range nc) s.clauses.clauses.toList)|>.filter (fun (i, c) => !seenClauses.contains i)
   let unseen_clauses := candidate_idx_clauses.map (fun (i, c) => c)
   -- then for each unseen clause, if there is an unseen literal (literal not in trail OR
   -- literal not assigned in solver.assignments) then we have that clause
   let seen_lits := AssignmentTrail.litsToSet s.trail
-  let clause_to_resolve := unseen_clauses.find? (fun c => c.lits.any (fun lit => !seen_lits.contains lit))
-  -- FIXME: What happens if we can't find clause_to_resolve?
-  let c2r := clause_to_resolve.get! -- FIXME: THIS IS UNSAFE
+
+  let opt_idx_c2r := candidate_idx_clauses.find? (fun (_, c) => c.lits.any (fun lit => !seen_lits.contains lit))
+  let (idx, c2r) := opt_idx_c2r.get! -- FIXME: THIS IS UNSAFE
+  -- let clause_to_resolve := unseen_clauses.find? (fun c => c.lits.any (fun lit => !seen_lits.contains lit))
+  -- -- FIXME: What happens if we can't find clause_to_resolve?
+  -- let c2r := clause_to_resolve.get! -- FIXME: THIS IS UNSAFE
 
   -- NOTE: In order to accurately satisfy 1-UIP, we need to:
   -- 1. Negate all literals in that clause and then
   let c2r' := { c2r with lits := c2r.lits.map (λ lit => -lit) }
   -- 2. OR-concat l to the end of the clause, so curr (which contains -l) can resolve with
   --    this new clause
-  { c2r' with lits := c2r.lits.push l }
+  let c2r'' := { c2r' with lits := c2r.lits.push l }
+  (c2r'', idx)
+
 
 -- add intermediary assignments to res tree, bookkeeping?
 def resolveOnVar (c1 c2 : Clause) (piv : CDCL.Var) : Clause :=
@@ -306,7 +311,7 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : Clause :=
   -- We want to show that loop terminates. How do we do this?
   -- prove that lits_at_dl's size eventually decreases, reaching the `curr` termination case
   -- 
-  let rec loop (curr : Clause) (seen : Std.HashSet CDCL.Var) : Clause :=
+  let rec loop (curr : Clause) (seen : Std.HashSet Nat) : Clause :=
     let lits_at_dl :=
       curr.lits.filter (fun (l : Lit) =>
         let var_dl := AssignmentTrail.dlOfVar s.trail l.var |>.getD 0 -- default 0 else var_dl
@@ -315,19 +320,20 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : Clause :=
       -- find last assigned literal l, then get ¬l
       let last_assigned_lit := -AssignmentTrail.findLastAssigned s.trail curr
       -- pick incoming edge
-      let clause_that_implied := pickIncomingEdge s last_assigned_lit seenClauses
+      let (clause_that_implied, clause_idx) := pickIncomingEdge s last_assigned_lit seenClauses
       -- resolve clause_that_implied and curr
       -- NOTE: we know that last_assigned_lit's sign in curr is the opposite of its sign in
       -- clause_that_implied
 
       -- TODO: Figure out if this correctly shadows
       let curr := resolveOnVar curr clause_that_implied last_assigned_lit.var
-      let seen := seen.insert last_assigned_lit.var
+      -- let seen := seen.insert last_assigned_lit.var
+      let seenClauses := seenClauses.insert clause_idx
       loop curr seen -- FIXME: Need to prove this recurses correctly, show termination!
 
   let curr := { conflict with lits := conflict.lits.map (λ l => -l) }
 
-  loop curr (Std.HashSet.emptyWithCapacity)
+  loop curr seenClauses
 
 def secondMax (xs : Array Nat) : Option Nat :=
   if xs.size < 2 then none

@@ -28,6 +28,13 @@ def Stack.isEmpty {α : Type} : Stack α → Bool
   | empty => true
   | _ => false
 
+-- pushes all elts from one stack onto to another
+def Stack.pushAll {α : Type} (s onto : Stack α) : Stack α :=
+  match s with
+  | Stack.empty => onto
+  | Stack.push x rest => pushAll rest (Stack.push x onto)
+
+-- pops until a DL
 def popUntilLevel : Stack (CDCL.Lit × Nat) → Nat → Stack (CDCL.Lit × Nat)
   | Stack.empty, _ => Stack.empty
   | Stack.push (lit, dl) rest, lvl =>
@@ -94,6 +101,18 @@ def findLastAssigned (t : AssignmentTrail) (c : CDCL.Clause) : CDCL.Lit :=
 
 def trimToLevel (t : AssignmentTrail) (lvl : Nat) : AssignmentTrail :=
   { t with stack := popUntilLevel t.stack lvl }
+
+-- takes stack and var (nat), pops literal referred to by nat
+def popVar (t : AssignmentTrail) (v : CDCL.Var) : AssignmentTrail :=
+  let rec loop (s acc : Stack (CDCL.Lit × Nat)) : Stack (CDCL.Lit × Nat) :=
+  match s with
+  | Stack.empty => acc -- didn't find var, return accumulated
+  | Stack.push (lit, dl) rest =>
+    if lit.var == v then
+      Stack.pushAll acc rest
+    else
+      loop rest (Stack.push (lit, dl) acc)
+  { t with stack := loop t.stack Stack.empty }
 
 end AssignmentTrail
 
