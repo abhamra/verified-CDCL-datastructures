@@ -330,6 +330,7 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : (Solver nv nc Ã
       let s' := { s with trail := s.trail.popVar last_assigned_lit.var }
 
       loop s' curr seen -- FIXME: Need to prove this recurses correctly, show termination!
+  termination_by s.trail.stack.size
 
   let curr := { conflict with lits := conflict.lits.map (Î» l => -l) }
 
