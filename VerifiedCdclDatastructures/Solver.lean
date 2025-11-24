@@ -409,14 +409,15 @@ def assignmentFromTrail {nv nc : Nat} (s : Solver nv nc) (keepVars : Std.HashSet
 
 /- Stub for backjumping/backtracking. -/
 def backjump {nv nc : Nat} (s : Solver nv nc) (lvl : Nat) : Solver nv nc :=
-  let trimmedTrail := AssignmentTrail.trimToLevel s.trail lvl
+  -- NOTE: `learn` already updates the trail in place, so we do not need to trim here
+  -- let trimmedTrail := AssignmentTrail.trimToLevel s.trail lvl
   let keepVars : Std.HashSet Var :=
-    (AssignmentTrail.toList trimmedTrail).map (fun (lit, _) => lit.var) |> Std.HashSet.ofList
+    (AssignmentTrail.toList s.trail).map (fun (lit, _) => lit.var) |> Std.HashSet.ofList
   let newAssign := assignmentFromTrail s keepVars
   let newPropReason := s.prop_reason.mapIdx (fun v old => if keepVars.contains v then old else none)
 
   -- TODO: Fix the resolution tree as well, if we add it to the Solver? 
-  { s with trail := trimmedTrail, assignment := newAssign, prop_reason := newPropReason, decision_lvl := lvl }
+  { s with assignment := newAssign, prop_reason := newPropReason, decision_lvl := lvl }
 
 /- A function that does all of the actual solving, and returns
    either a satisfying assignment to the literals, or none
