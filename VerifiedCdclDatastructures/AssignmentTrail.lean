@@ -28,6 +28,11 @@ def Stack.isEmpty {α : Type} : Stack α → Bool
   | empty => true
   | _ => false
 
+def Stack.size {α : Type} : Stack α → Nat
+  | empty => 0
+  | push _ xs => 1 + size xs
+
+
 -- pushes all elts from one stack onto to another
 def Stack.pushAll {α : Type} (s onto : Stack α) : Stack α :=
   match s with
@@ -50,6 +55,8 @@ structure AssignmentTrail where
 namespace AssignmentTrail
 
 -- TODO: Add helper/wrapper functions around the internal stack
+
+def size (t : AssignmentTrail) : Nat := t.stack.size
 
 def push (t : AssignmentTrail) (lit : CDCL.Lit) (dl : Nat) : AssignmentTrail :=
   { t with stack := Stack.push (lit, dl) t.stack }

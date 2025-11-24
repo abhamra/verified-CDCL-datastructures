@@ -255,17 +255,13 @@ theorem decide_preserves_ct {α : Type} [h : Heuristic (nv := nv) (nc := nc) α]
 -- then return the unseen clause containing l
 def pickIncomingEdge {nv nc : Nat} (s : Solver nv nc) (l : CDCL.Lit) (seenClauses : Std.HashSet Nat) : (Clause × Nat) :=
   -- first we filter to select over ONLY unseen clauses THAT contain l
-  let candidate_idx_clauses := (List.zip (List.range nc) s.clauses.clauses.toList)|>.filter (fun (i, c) => !seenClauses.contains i)
-  let unseen_clauses := candidate_idx_clauses.map (fun (i, c) => c)
+  let candidate_idx_clauses := (List.zip (List.range nc) s.clauses.clauses.toList)|>.filter (fun (i, _) => !seenClauses.contains i)
   -- then for each unseen clause, if there is an unseen literal (literal not in trail OR
   -- literal not assigned in solver.assignments) then we have that clause
   let seen_lits := AssignmentTrail.litsToSet s.trail
 
   let opt_idx_c2r := candidate_idx_clauses.find? (fun (_, c) => c.lits.any (fun lit => !seen_lits.contains lit))
   let (idx, c2r) := opt_idx_c2r.get! -- FIXME: THIS IS UNSAFE
-  -- let clause_to_resolve := unseen_clauses.find? (fun c => c.lits.any (fun lit => !seen_lits.contains lit))
-  -- -- FIXME: What happens if we can't find clause_to_resolve?
-  -- let c2r := clause_to_resolve.get! -- FIXME: THIS IS UNSAFE
 
   -- NOTE: In order to accurately satisfy 1-UIP, we need to:
   -- 1. Negate all literals in that clause and then
@@ -291,7 +287,7 @@ def resolveOnVar (c1 c2 : Clause) (piv : CDCL.Var) : Clause :=
    generates a learnt conflict clause via the first unique
    implication point formulation
 -/
-def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : Clause :=
+def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : (Solver nv nc × Clause) :=
   /-
     1. Start from conflict clause, set the "curr" clause to be the
        negation of all literals in the clause. For example, with
@@ -311,12 +307,12 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : Clause :=
   -- We want to show that loop terminates. How do we do this?
   -- prove that lits_at_dl's size eventually decreases, reaching the `curr` termination case
   -- 
-  let rec loop (curr : Clause) (seen : Std.HashSet Nat) : Clause :=
+  let rec loop (s : Solver nv nc) (curr : Clause) (seen : Std.HashSet Nat) : (Solver nv nc × Clause) :=
     let lits_at_dl :=
       curr.lits.filter (fun (l : Lit) =>
         let var_dl := AssignmentTrail.dlOfVar s.trail l.var |>.getD 0 -- default 0 else var_dl
         var_dl = dl)
-    if lits_at_dl.size == 1 then curr else 
+    if lits_at_dl.size == 1 then (s, curr) else 
       -- find last assigned literal l, then get ¬l
       let last_assigned_lit := -AssignmentTrail.findLastAssigned s.trail curr
       -- pick incoming edge
@@ -327,13 +323,17 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : Clause :=
 
       -- TODO: Figure out if this correctly shadows
       let curr := resolveOnVar curr clause_that_implied last_assigned_lit.var
-      -- let seen := seen.insert last_assigned_lit.var
+      -- update seen clauses
       let seenClauses := seenClauses.insert clause_idx
-      loop curr seen -- FIXME: Need to prove this recurses correctly, show termination!
+
+      -- update trail
+      let s' := { s with trail := s.trail.popVar last_assigned_lit.var }
+
+      loop s' curr seen -- FIXME: Need to prove this recurses correctly, show termination!
 
   let curr := { conflict with lits := conflict.lits.map (λ l => -l) }
 
-  loop curr seenClauses
+  loop s curr seenClauses
 
 def secondMax (xs : Array Nat) : Option Nat :=
   if xs.size < 2 then none
@@ -382,13 +382,11 @@ def analyzeConflict {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : (Solv
 
 
   -- find a new conflict clause and
-  let new_conflict := learn s' conflict
+  let (s_learn, new_conflict) := learn s' conflict
   -- add it to the clausedb, then
-   let new_db := s.clauses.addLearnt s.assignment conflict
-   let s'' := { s' with clauses := new_db 
-                        is_satisfied := s'.is_satisfied.push false
-                        contingent_ct := s'.contingent_ct + 1
-   }
+  let new_db := s.clauses.addLearnt s.assignment conflict
+  let s'' := { s_learn with clauses := new_db, is_satisfied := s_learn.is_satisfied.push false, contingent_ct := s_learn.contingent_ct + 1 }
+  -- NOTE: s_learn (from `learn`) UPDATES the trail, which is why we return a new solver state from it
 
   -- figure out backjump level. We do this by selecting the variable
   -- with the 2nd highest decision level.
