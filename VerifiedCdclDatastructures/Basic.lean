@@ -1,6 +1,7 @@
 import Std.Data.HashSet
 import Std.Data.HashMap
 import Batteries.Data.BinomialHeap
+import Batteries.Data.Array
 
 
 /- TODO:

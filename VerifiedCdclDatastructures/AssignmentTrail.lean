@@ -79,10 +79,18 @@ def dlOfVar (t : AssignmentTrail) (v : CDCL.Var) : Option Nat :=
   (t.toList.find? (·.1.natAbs = v)).map (·.2)
 
 -- finds the last assigned literal, literal with the highest DL in clause
-def findLastAssigned (t : AssignmentTrail) (c : Clause) : CDCL.Lit :=
-  sorry
-  -- TODO: Fix? No idea why it ain't working, will just use for later
-  -- c.lits.getMax? (AssignmentTrail.dlOfVar ·.var < AssignmentTrail.dlOfVar ·.var)
+-- Assumes monotonicity of the trail stack w.r.t decision level (highest DL @ top)
+def findLastAssigned (t : AssignmentTrail) (c : CDCL.Clause) : CDCL.Lit :=
+  let litSet := Std.HashSet.ofList c.lits.toList
+  let rec go : List (CDCL.Lit × Nat) -> CDCL.Lit
+  | [] => 0
+  | (l, _) :: rest =>
+    if litSet.contains l then
+      l
+    else
+      go rest
+
+  go (toList t)
 
 def trimToLevel (t : AssignmentTrail) (lvl : Nat) : AssignmentTrail :=
   { t with stack := popUntilLevel t.stack lvl }

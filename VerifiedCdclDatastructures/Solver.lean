@@ -1,5 +1,5 @@
-import VerifiedCdclDatastructures.AssignmentTrail
 import VerifiedCdclDatastructures.Basic
+import VerifiedCdclDatastructures.AssignmentTrail
 
 import Mathlib.Tactic.Lemma
 import Init.Data.Array.Lemmas
@@ -276,7 +276,8 @@ def resolveOnVar (c1 c2 : Clause) (piv : CDCL.Var) : Clause :=
   let keepFrom (c : Clause) : Array Lit :=
     c.lits.foldl (fun acc l => if l.var == piv then acc else if acc.elem l then acc else acc.push l) #[]
 
-  let merged := (keepFrom c1) ++ (keepFrom c2)
+  -- NOTE: Need to make sure there are no duplicates
+  let merged := Array.mergeDedup (keepFrom c1) (keepFrom c2)
   { lits := merged, learnt := true }
   
 
@@ -302,6 +303,9 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : Clause :=
   let seenClauses : Std.HashSet Nat := Std.HashSet.emptyWithCapacity
   let dl := s.decision_lvl
 
+  -- We want to show that loop terminates. How do we do this?
+  -- prove that lits_at_dl's size eventually decreases, reaching the `curr` termination case
+  -- 
   let rec loop (curr : Clause) (seen : Std.HashSet CDCL.Var) : Clause :=
     let lits_at_dl :=
       curr.lits.filter (fun (l : Lit) =>
@@ -309,22 +313,17 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : Clause :=
         var_dl = dl)
     if lits_at_dl.size == 1 then curr else 
       -- find last assigned literal l, then get ¬l
-      -- NOTE: This is sound because
       let last_assigned_lit := -AssignmentTrail.findLastAssigned s.trail curr
       -- pick incoming edge
       let clause_that_implied := pickIncomingEdge s last_assigned_lit seenClauses
-      -- FIXME: This clause, as is, is wrong, because say curr is (x1 ∨ ¬x2), and
-      -- x2 is the last assigned lit. Say also that c' = (¬x3 ∨ x4) flows "implied"
-      -- x2, then the clause we want to resolve with is (x3 ∨ ¬x4 ∨ x2)
-
-
-      -- resolve clause_that_implied and curr 
+      -- resolve clause_that_implied and curr
       -- NOTE: we know that last_assigned_lit's sign in curr is the opposite of its sign in
       -- clause_that_implied
 
       -- TODO: Figure out if this correctly shadows
       let curr := resolveOnVar curr clause_that_implied last_assigned_lit.var
-      loop curr seen -- FIXME: Need to prove this recurses correctly, show termination!!!
+      let seen := seen.insert last_assigned_lit.var
+      loop curr seen -- FIXME: Need to prove this recurses correctly, show termination!
 
   let curr := { conflict with lits := conflict.lits.map (λ l => -l) }
 
