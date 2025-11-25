@@ -255,13 +255,9 @@ theorem decide_preserves_ct {α : Type} [h : Heuristic (nv := nv) (nc := nc) α]
 -- then return the unseen clause containing l
 def pickIncomingEdge {nv nc : Nat} (s : Solver nv nc) (l : CDCL.Lit) (seenClauses : Std.HashSet Nat) : (Clause × Nat) :=
   -- first we filter to select over ONLY unseen clauses THAT contain l
+  -- FIXME: Can we prove that this is non-empty?
   let candidate_idx_clauses := (List.zip (List.range nc) s.clauses.clauses.toList)|>.filter (fun (i, _) => !seenClauses.contains i)
-  -- then for each unseen clause, if there is an unseen literal (literal not in trail OR
-  -- literal not assigned in solver.assignments) then we have that clause
-  let seen_lits := AssignmentTrail.litsToSet s.trail
-
-  let opt_idx_c2r := candidate_idx_clauses.find? (fun (_, c) => c.lits.any (fun lit => !seen_lits.contains lit))
-  let (idx, c2r) := opt_idx_c2r.get! -- FIXME: THIS IS UNSAFE
+  let (idx, c2r) := candidate_idx_clauses[0]! -- FIXME: THIS IS UNSAFE until we prove nonemptiness
 
   -- NOTE: In order to accurately satisfy 1-UIP, we need to:
   -- 1. Negate all literals in that clause and then
@@ -306,7 +302,6 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause)
        conflict = (¬x1 ∨ x2), curr becomes (x1 ∨ ¬x2)
     2. In the current clause c, find the last assigned literal l
     3. Pick an incoming edge to l (a clause c' that contains literal l)
-       and pick an unseen literal in that clause that points to it
     4. Resolve curr and c'
     5. set curr = resolve curr c'
     6. repeat until only one literal in curr @ s.dl
@@ -326,7 +321,9 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause)
         var_dl = dl)
     if lits_at_dl.size == 1 then (s, curr) else 
       -- find last assigned literal l, then get ¬l
-      -- NOTE: Can we guarantee that last_assigned_lit is never 0?
+      -- NOTE: Can we guarantee that last_assigned_lit is never 0? That we always find last_assigned_lit?
+      -- need to show that for all clauses found by pickIncomingEdge, last assigned variable is in trail
+      -- and last assigned in curr\{last_assigned_lit} is also in trail
       let last_assigned_lit := -AssignmentTrail.findLastAssigned s.trail curr
       -- pick incoming edge
       let (clause_that_implied, clause_idx) := pickIncomingEdge s last_assigned_lit seenClauses

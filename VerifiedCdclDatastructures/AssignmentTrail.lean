@@ -128,13 +128,6 @@ def findLastAssigned (t : AssignmentTrail) (c : CDCL.Clause) : CDCL.Lit :=
   go (toList t)
 
 
--- TODO: prove that if a literal from the clause is assigned in the trail, then the var
--- is in the solver's stack
-lemma findLastAssigned_var_in_trail (t : AssignmentTrail) (c : CDCL.Clause) :
-    let lit := AssignmentTrail.findLastAssigned t c
-    lit ≠ 0 → containsVar lit.var t.stack = true := by
-      sorry
-
 def trimToLevel (t : AssignmentTrail) (lvl : Nat) : AssignmentTrail :=
   { t with stack := popUntilLevel t.stack lvl }
 
