@@ -1,5 +1,5 @@
-import VerifiedCdclDatastructures.Basic
 import VerifiedCdclDatastructures.AssignmentTrail
+import VerifiedCdclDatastructures.Basic
 
 import Mathlib.Tactic.Lemma
 import Init.Data.Array.Lemmas
@@ -282,6 +282,15 @@ def resolveOnVar (c1 c2 : Clause) (piv : CDCL.Var) : Clause :=
   { lits := merged, learnt := true }
   
 
+
+-- Goal: Want to show that the trail size after popVar <= trail size before popVar
+theorem popVar_trail_size_decreases (s : Solver nv nc) (v : Var) :
+  (s.trail.popVar v).size < s.trail.size := by
+    -- use popVar_size_lt_or_eq instead?
+    -- likely need to assert something about containing var v
+    apply AssignmentTrail.popVar_size_leq s.trail v
+    sorry
+
 /- Stub for clause learning. Use this for 1-UIP, it takes
    in the current solver state and a conflict clause, and
    generates a learnt conflict clause via the first unique
@@ -327,10 +336,13 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : (Solver nv nc Ã
       let seenClauses := seenClauses.insert clause_idx
 
       -- update trail
-      let s' := { s with trail := s.trail.popVar last_assigned_lit.var }
+      let s' : Solver nv nc := { s with trail := s.trail.popVar last_assigned_lit.var }
+      have : s'.trail.size < s.trail.size := by
+        simp [s']
+        apply popVar_trail_size_decreases
 
       loop s' curr seen -- FIXME: Need to prove this recurses correctly, show termination!
-  termination_by s.trail.stack.size
+  termination_by s.trail.size
 
   let curr := { conflict with lits := conflict.lits.map (Î» l => -l) }
 

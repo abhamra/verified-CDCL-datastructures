@@ -6,6 +6,9 @@ and their corresponding decision levels, for use in branching and conflict analy
 -/
 
 import VerifiedCdclDatastructures.Basic
+import Mathlib.Tactic.Lemma
+import Mathlib.Tactic.Linarith
+import Init.Data.Array.Lemmas
 
 -- Stacks for generic types α
 inductive Stack (α : Type) where
@@ -32,12 +35,30 @@ def Stack.size {α : Type} : Stack α → Nat
   | empty => 0
   | push _ xs => 1 + size xs
 
+-- a helper predicate that tells whether a var is in the stack
+def containsVar (v : CDCL.Var) : Stack (CDCL.Lit × Nat) → Bool
+  | Stack.empty => false
+  | Stack.push (l, _) xs => l.var == v || containsVar v xs
+
+-- if containsVar true, then stack nonempty
+lemma containsVar_true_nonempty (v : CDCL.Var) (s : Stack (CDCL.Lit × Nat)) :
+    containsVar v s = true → 0 < s.size := by
+      intro h
+      cases s with
+      | empty => simp [containsVar] at h
+      | push l rest => simp [Stack.size]
 
 -- pushes all elts from one stack onto to another
 def Stack.pushAll {α : Type} (s onto : Stack α) : Stack α :=
   match s with
   | Stack.empty => onto
   | Stack.push x rest => pushAll rest (Stack.push x onto)
+
+-- small theorem about size of stack with pushAll, total size = s.size + acc.size
+lemma size_pushAll : ∀ (s acc : Stack α), (Stack.pushAll s acc).size = s.size + acc.size
+  | Stack.empty, acc => by simp [Stack.pushAll, Stack.size]
+  | Stack.push x xs, acc => 
+  by simp [Stack.pushAll, Stack.size, size_pushAll xs (Stack.push x acc), ←Nat.add_assoc, Nat.add_comm]
 
 -- pops until a DL
 def popUntilLevel : Stack (CDCL.Lit × Nat) → Nat → Stack (CDCL.Lit × Nat)
@@ -120,6 +141,51 @@ def popVar (t : AssignmentTrail) (v : CDCL.Var) : AssignmentTrail :=
     else
       loop rest (Stack.push (lit, dl) acc)
   { t with stack := loop t.stack Stack.empty }
+
+-- popVar's loop size <= the input loop size (either -1 or stays same)
+lemma loop_size (v : CDCL.Var) : ∀ (s acc : Stack (CDCL.Lit × Nat)),
+  if containsVar v s then
+    (popVar.loop v s acc).size = s.size + acc.size - 1
+  else (popVar.loop v s acc).size = s.size + acc.size
+  | Stack.empty, acc =>
+    by simp [AssignmentTrail.popVar.loop, containsVar, Stack.size]
+  | Stack.push (l, dl) rest, acc =>
+    by
+      by_cases h : l.var == v
+      · simp[AssignmentTrail.popVar.loop, containsVar, h, Stack.size, size_pushAll, Nat.add_comm]
+        omega -- simplify arithmetic shenaniganery
+      · simp only [containsVar, popVar.loop, h, Stack.size] -- then do IH
+        have ih := loop_size v rest (Stack.push (l, dl) acc)
+        simp only [Stack.size] at ih
+        convert ih using 2 <;> omega -- applies omega to all things gen by convert
+
+lemma popVar_size_leq (t : AssignmentTrail) (v : CDCL.Var) :
+    (t.popVar v).size <= t.size := by
+      unfold popVar
+      have h := loop_size v t.stack Stack.empty -- empty acc to start
+      simp only [Stack.size, size] at h ⊢
+      split_ifs at h with hc
+      · have hpos := containsVar_true_nonempty v t.stack hc
+        omega
+      · omega
+
+lemma popVar_size_lt_or_eq (t : AssignmentTrail) (v : CDCL.Var) :
+    (t.popVar v).size == t.size ∨ (t.popVar v).size < t.size := by
+      unfold popVar
+      have h := loop_size v t.stack Stack.empty -- empty acc to start
+      simp only [Stack.size, size] at h ⊢
+      split_ifs at h with hc
+      · right
+        rw [Nat.add_zero] at h
+        rw [h]
+        apply Nat.sub_lt
+        · have hpos := containsVar_true_nonempty v t.stack hc
+          apply hpos
+        · exact Nat.zero_lt_one
+      · left
+        rw [Nat.add_zero] at h
+        rw [←h]
+        simp
 
 end AssignmentTrail
 
