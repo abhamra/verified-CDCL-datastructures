@@ -257,7 +257,8 @@ def pickIncomingEdge {nv nc : Nat} (s : Solver nv nc) (l : CDCL.Lit) (seenClause
   -- first we filter to select over ONLY unseen clauses THAT contain l
   -- FIXME: Can we prove that this is non-empty?
   let candidate_idx_clauses := (List.zip (List.range nc) s.clauses.clauses.toList)|>.filter (fun (i, _) => !seenClauses.contains i)
-  let (idx, c2r) := candidate_idx_clauses[0]! -- FIXME: THIS IS UNSAFE until we prove nonemptiness
+  let opt_idx_c2r := candidate_idx_clauses.find? (fun (_, c) => c.lits.contains l)
+  let (idx, c2r) := opt_idx_c2r.get! -- FIXME: THIS IS UNSAFE
 
   -- NOTE: In order to accurately satisfy 1-UIP, we need to:
   -- 1. Negate all literals in that clause and then
