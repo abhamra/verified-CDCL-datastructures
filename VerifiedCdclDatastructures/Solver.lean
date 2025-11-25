@@ -296,7 +296,10 @@ theorem popVar_trail_size_decreases (s : Solver nv nc) (v : Var) :
    generates a learnt conflict clause via the first unique
    implication point formulation
 -/
-def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : (Solver nv nc × Clause) :=
+def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause)
+  (h_conflict_nonempty : conflict.lits.size > 0)
+  (h_conflict_assigned : ∀ l ∈ conflict.lits, containsVar l.var s.trail.stack = true)
+  : (Solver nv nc × Clause) :=
   /-
     1. Start from conflict clause, set the "curr" clause to be the
        negation of all literals in the clause. For example, with
@@ -344,12 +347,30 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : (Solver nv nc �
         simp only [s']
         apply AssignmentTrail.popVar_size_lt_containsVar
 
-      loop s' curr seen -- FIXME: Need to prove this recurses correctly, show termination!
+      have h_curr'_assigned : ∀ l ∈ curr.lits, containsVar l.var s'.trail.stack = true := by
+        intro l hl
+        -- l came from either curr or clause_that_implied but not last_assigned_lit.var, since
+        -- it was resolved over
+        -- both had all vars in s.trail (prove?)
+        -- we only removed last_assigned_lit
+        -- so l.var is still in s.trail (PROVE)
+        sorry
+
+      loop s' curr seen h_curr'_assigned -- FIXME: Need to prove this recurses correctly, show termination!
   termination_by s.trail.size
 
-  let curr := { conflict with lits := conflict.lits.map (λ l => -l) }
+  let curr : Clause := { conflict with lits := conflict.lits.map (λ l => -l) }
 
-  loop s curr seenClauses
+  have h_init : ∀ l ∈ curr.lits, containsVar l.var s.trail.stack = true := by
+    intro l lh
+    -- l in curr and l' in conflict are negatives of each other
+    -- refer to the same var
+    -- How do we know that curr's lits are in the trail? All the lits were in conflict clause,
+    -- had to have assignments to cause conflict, i think
+    -- How do we prove it?
+    sorry
+
+  loop s curr seenClauses h_init
 
 def secondMax (xs : Array Nat) : Option Nat :=
   if xs.size < 2 then none
@@ -397,8 +418,11 @@ def analyzeConflict {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : (Solv
   let s' := { s with activity := updated_activity };
 
 
+  -- FIXME: need to have conflict size nonempty AND
+  -- conflict vars in assignment trail (proved via lemmas?)
+
   -- find a new conflict clause and
-  let (s_learn, new_conflict) := learn s' conflict
+  let (s_learn, new_conflict) := learn s' conflict -- sorry for later
   -- add it to the clausedb, then
   let new_db := s.clauses.addLearnt s.assignment conflict
   let s'' := { s_learn with clauses := new_db, is_satisfied := s_learn.is_satisfied.push false, contingent_ct := s_learn.contingent_ct + 1 }
