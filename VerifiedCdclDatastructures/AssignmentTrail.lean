@@ -127,6 +127,14 @@ def findLastAssigned (t : AssignmentTrail) (c : CDCL.Clause) : CDCL.Lit :=
 
   go (toList t)
 
+
+-- TODO: prove that if a literal from the clause is assigned in the trail, then the var
+-- is in the solver's stack
+lemma findLastAssigned_var_in_trail (t : AssignmentTrail) (c : CDCL.Clause) :
+    let lit := AssignmentTrail.findLastAssigned t c
+    lit ≠ 0 → containsVar lit.var t.stack = true := by
+      sorry
+
 def trimToLevel (t : AssignmentTrail) (lvl : Nat) : AssignmentTrail :=
   { t with stack := popUntilLevel t.stack lvl }
 
@@ -158,6 +166,15 @@ lemma loop_size (v : CDCL.Var) : ∀ (s acc : Stack (CDCL.Lit × Nat)),
         have ih := loop_size v rest (Stack.push (l, dl) acc)
         simp only [Stack.size] at ih
         convert ih using 2 <;> omega -- applies omega to all things gen by convert
+
+lemma popVar_size_lt_containsVar (t : AssignmentTrail) (v : CDCL.Var)
+  (hcv : containsVar v t.stack = true) : (t.popVar v).size < t.size := by
+  unfold popVar
+  have h := loop_size v t.stack Stack.empty -- empty acc to start
+  simp only [Stack.size, size] at h ⊢
+  split_ifs at h
+  · have hpos := containsVar_true_nonempty v t.stack hcv
+    omega
 
 lemma popVar_size_leq (t : AssignmentTrail) (v : CDCL.Var) :
     (t.popVar v).size <= t.size := by

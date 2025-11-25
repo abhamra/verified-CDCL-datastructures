@@ -288,7 +288,7 @@ theorem popVar_trail_size_decreases (s : Solver nv nc) (v : Var) :
   (s.trail.popVar v).size < s.trail.size := by
     -- use popVar_size_lt_or_eq instead?
     -- likely need to assert something about containing var v
-    apply AssignmentTrail.popVar_size_leq s.trail v
+    apply AssignmentTrail.popVar_size_lt_containsVar s.trail v
     sorry
 
 /- Stub for clause learning. Use this for 1-UIP, it takes
@@ -314,15 +314,16 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : (Solver nv nc �
   let dl := s.decision_lvl
 
   -- We want to show that loop terminates. How do we do this?
-  -- prove that lits_at_dl's size eventually decreases, reaching the `curr` termination case
-  -- 
-  let rec loop (s : Solver nv nc) (curr : Clause) (seen : Std.HashSet Nat) : (Solver nv nc × Clause) :=
+  -- prove that the trail's size continually decreases
+  let rec loop (s : Solver nv nc) (curr : Clause) (seen : Std.HashSet Nat)
+    (h_curr_assigned : ∀ l ∈ curr.lits, containsVar l.var s.trail.stack = true) : (Solver nv nc × Clause) :=
     let lits_at_dl :=
       curr.lits.filter (fun (l : Lit) =>
         let var_dl := AssignmentTrail.dlOfVar s.trail l.var |>.getD 0 -- default 0 else var_dl
         var_dl = dl)
     if lits_at_dl.size == 1 then (s, curr) else 
       -- find last assigned literal l, then get ¬l
+      -- NOTE: Can we guarantee that last_assigned_lit is never 0?
       let last_assigned_lit := -AssignmentTrail.findLastAssigned s.trail curr
       -- pick incoming edge
       let (clause_that_implied, clause_idx) := pickIncomingEdge s last_assigned_lit seenClauses
@@ -336,10 +337,12 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : (Solver nv nc �
       let seenClauses := seenClauses.insert clause_idx
 
       -- update trail
+      -- NOTE: Do we know that last_assigned_lit is in s.trail before the pop?
       let s' : Solver nv nc := { s with trail := s.trail.popVar last_assigned_lit.var }
+
       have : s'.trail.size < s.trail.size := by
-        simp [s']
-        apply popVar_trail_size_decreases
+        simp only [s']
+        apply AssignmentTrail.popVar_size_lt_containsVar
 
       loop s' curr seen -- FIXME: Need to prove this recurses correctly, show termination!
   termination_by s.trail.size
