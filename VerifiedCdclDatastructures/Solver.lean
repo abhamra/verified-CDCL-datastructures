@@ -255,7 +255,7 @@ theorem decide_preserves_ct {α : Type} [h : Heuristic (nv := nv) (nc := nc) α]
 -- then return the unseen clause containing l
 def pickIncomingEdge {nv nc : Nat} (s : Solver nv nc) (l : CDCL.Lit) (seenClauses : Std.HashSet Nat) : (Clause × Nat) :=
   -- first we filter to select over ONLY unseen clauses THAT contain l
-  -- FIXME: Can we prove that this is non-empty?
+  -- FIXME: Can we prove that this is non-empty? and that c.lits.contains l?
   let candidate_idx_clauses := (List.zip (List.range nc) s.clauses.clauses.toList)|>.filter (fun (i, _) => !seenClauses.contains i)
   let opt_idx_c2r := candidate_idx_clauses.find? (fun (_, c) => c.lits.contains l)
   let (idx, c2r) := opt_idx_c2r.get! -- FIXME: THIS IS UNSAFE

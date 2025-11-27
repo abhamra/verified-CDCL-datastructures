@@ -10,6 +10,7 @@ namespace CDCL
    1, 2, 3, ... in lookups
 -/
 abbrev Var := Nat
+
 /- A literal is a variable with an associated sign
    like ¬p, or q. Positive literals are true, negative literals are false.
    Counting starts at one.
@@ -89,11 +90,8 @@ end Assignment
    and never produces clauses containing duplicates
 -/
 structure ClauseDB (nc : Nat) where
-  -- init_clauses   : Array Clause -- from formula
-  -- learnt_clauses : Array Clause -- from conflict analysis
   clauses : Vector Clause nc -- indices >= #vars -> learnt clauses.
   num_unassigned : Vector Nat nc := clauses.map (λ c => c.lits.size)
-  -- FIXME: Per paper, change this to store both at same time?
   deriving Repr
 
 /- Helper functions for ClauseDB go here -/
