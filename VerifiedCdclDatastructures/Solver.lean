@@ -111,34 +111,36 @@ def bcpTest1 : Solver f1.num_vars f1.clauses.size × BCPResult f1.num_vars f1.cl
 -- Then just by transitivity, you have it!
 
 abbrev PropTriple (nv nc : Nat) := Solver nv nc × Array (Fin nc) × Array (Fin nc)
-def propNonUnit (lit : Lit) (in_prop : PropTriple nv nc) (i : Fin nc) : PropTriple nv nc :=
-  let (s', units', non_uc) := in_prop
+def propNonUnit (lit : Lit) (in_prop : PropTriple nv nc) (non_uci : Fin nc) : PropTriple nv nc :=
+  let (s', units', non_uc') := in_prop
   -- Maybe we could pass proof values around in the solver :)
   -- These clauses are just my attempt at exploring what would satisfy
   -- Lean's bound-checking requirements.
-  let prop_clause := s'.clauses.clauses[i]
-  if ¬(s'.is_satisfied[i])
+  let prop_clause := s'.clauses.clauses[non_uci]
+  if ¬(s'.is_satisfied[non_uci])
   then if prop_clause.lits.contains lit
-    then ({ s' with is_satisfied := s'.is_satisfied.set i true
+    then ({ s' with is_satisfied := s'.is_satisfied.set non_uci true
                     contingent_ct := s'.contingent_ct - 1
-    }, units', non_uc.push i)
+    }, units', non_uc'.push non_uci)
     else if prop_clause.lits.contains (-lit)
       then 
-        let s' : Solver nv nc := { s' with clauses := s'.clauses.propLit i }
-        let (units', non_uc) := if s'.clauses.num_unassigned[i] = 1 
-          then (units'.push i, non_uc)
-          else (units', non_uc.push i)
+        let s' : Solver nv nc := { s' with clauses := s'.clauses.propLit non_uci }
+        let (units', non_uc) := if s'.clauses.num_unassigned[non_uci] = 1 
+          then (units'.push non_uci, non_uc')
+          else (units', non_uc'.push non_uci)
         (s', units', non_uc)
-      else (s', units', non_uc.push i)
+      else (s', units', non_uc'.push non_uci)
   -- Skip the next non-unit
-  else (s', units', non_uc)
+  else (s', units', non_uc')
 
 -- I feel like this proof could be much terser, but throwing dynamite is a martial art as long as it works :)
 -- We want to show that `contingent_ct` always decreases in each call of `bcp`.
 -- This is the ground floor of the proof: show `propNonUnit` doesn't increase contingent_ct.
 lemma propNonUnit_leq (pt : PropTriple nv nc) :
-    ∀ lit i, (propNonUnit lit pt i).fst.contingent_ct ≤ pt.fst.contingent_ct := by
-  intros
+    ∀ lit uci,
+    let pt' := (propNonUnit lit pt uci)
+    pt'.fst.contingent_ct ≤ pt.fst.contingent_ct := by
+  intros lit uci
   unfold propNonUnit
   split -- destruct match
   · simp
@@ -149,9 +151,25 @@ lemma propNonUnit_leq (pt : PropTriple nv nc) :
         all_goals simp -- Just simplify both cases thx
     · simp
 
-lemma propNonUnit_leq_foldl_induction (pt : PropTriple nv nc) :
-    ∀ lit (non_uc : Array (Fin nc)), (non_uc.foldl (propNonUnit lit) pt).fst.contingent_ct ≤ pt.fst.contingent_ct := by
-  sorry
+
+lemma propNonUnit_leq_foldl (lit : Lit) (pt : PropTriple nv nc) (non_uc : Array (Fin nc)) :
+    (non_uc.foldl (propNonUnit lit) pt).fst.contingent_ct ≤ pt.fst.contingent_ct :=
+  -- The length of the array is irrelevant, same with the index of the unit clause we're forcing to ⊤.
+  let motive := (λ (_ : Nat) (pt : PropTriple nv nc) => type_of% (propNonUnit_leq pt lit))
+  have h0 : motive 0 pt := propNonUnit_leq pt lit
+  have hf : ∀ (i : Fin non_uc.size) (pt : PropTriple nv nc), motive (↑i) pt → motive (↑i + 1) (propNonUnit lit pt non_uc[i]) := by
+    intros i pt ih
+    unfold motive
+    unfold motive at ih
+    intros uci
+    extract_lets pt'
+    simp at ih
+  have ind := Array.foldl_induction motive h0 hf
+  by
+    unfold motive at ind
+    simp at ind
+    simp
+
 
 def propOne (in_prop : PropTriple nv nc) (uci : Fin nc) : PropTriple nv nc :=
   let (s, units', non_uc') := in_prop
@@ -162,6 +180,7 @@ def propOne (in_prop : PropTriple nv nc) (uci : Fin nc) : PropTriple nv nc :=
     assignment := s.assignment.assign lit.var (lit > 0)
     is_satisfied := s.is_satisfied.set uci true -- It's a unit clause, so it's saitsfied!
     contingent_ct := s.contingent_ct - 1
+    trail := s.trail.push lit s.decision_lvl
     clauses := s.clauses.propLit uci
     prop_reason := s.prop_reason.set! lit.var (some uci)
   }
@@ -183,7 +202,7 @@ lemma propOne_lt (pt : PropTriple nv nc) {hcz : pt.fst.contingent_ct > 0} :
     have hcm : s.contingent_ct = s'.contingent_ct - 1 := rfl
     have hc : s.contingent_ct < s'.contingent_ct := by omega
     let s'' := (Array.foldl (propNonUnit lit) (s, #[], #[]) non_uc').fst
-    have hleq : s''.contingent_ct ≤ s.contingent_ct := propNonUnit_leq_foldl_induction (s, #[], #[]) lit non_uc'
+    have hleq : s''.contingent_ct ≤ s.contingent_ct := propNonUnit_leq_foldl lit (s, #[], #[]) non_uc'
     subst s'' s
     omega
 
@@ -194,8 +213,6 @@ def propUnits (in_prop : PropTriple nv nc) (hc : in_prop.fst.contingent_ct > 0) 
 
   -- Once again, `foldl` induction. Still wrapping my head around exactly what a "motive" is
   have hcc : s'.contingent_ct < s.contingent_ct := by admit
-    -- subst s
-    -- apply propOne_lt after_prop hc
 
   -- If we don't discover any more unit clauses, we are done propagating. Now to pass judgment.
   if uc_inds.isEmpty
@@ -229,8 +246,13 @@ def bcp {nv nc : Nat} (s : Solver nv nc) (hc : s.contingent_ct > 0) : BCPResult 
 
 -- TODO: This should be straightforward once I've got `propUnits` proved.
 theorem bcp_decreases_ct (s : Solver nv nc) (hc : s.contingent_ct > 0) :
-    s.contingent_ct < (match bcp s hc with | .ok s' => s'.contingent_ct | .error (s', _) => s'.contingent_ct) :=
-  sorry
+    let next_ct := (match bcp s hc with | .ok s' => s'.contingent_ct | .error (s', _) => s'.contingent_ct)
+    s.contingent_ct < next_ct := by
+  extract_lets next_ct
+  cases next_ct with
+  | zero => simp; exfalso
+  | succ n => sorry
+
 
 def decide {α : Type} {nv nc : Nat} [h : Heuristic (nv := nv) (nc := nc) α] (s : Solver nv nc) : Solver nv nc :=
   match h.pickVar s with
@@ -381,9 +403,6 @@ def secondMax (xs : Array Nat) : Option Nat :=
       else if x >= m2 then (m1, x)
       else (m1, m2)
   some max2
-
-#eval secondMax #[1, 5, 3, 4, 5]  -- some 5
-#eval secondMax #[7]              -- none
 
 -- want 2nd highest dl
 def computeBackjumpLevel {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : Nat :=
