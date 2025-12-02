@@ -2,6 +2,7 @@ import VerifiedCdclDatastructures.AssignmentTrail
 import VerifiedCdclDatastructures.Basic
 
 import Mathlib.Tactic.Lemma
+import Init.Data.Nat.Lemmas
 import Init.Data.Array.Lemmas
 
 namespace CDCL.Solver
@@ -136,11 +137,11 @@ def propNonUnit (lit : Lit) (in_prop : PropTriple nv nc) (non_uci : Fin nc) : Pr
 -- I feel like this proof could be much terser, but throwing dynamite is a martial art as long as it works :)
 -- We want to show that `contingent_ct` always decreases in each call of `bcp`.
 -- This is the ground floor of the proof: show `propNonUnit` doesn't increase contingent_ct.
-lemma propNonUnit_leq (pt : PropTriple nv nc) :
-    ∀ lit uci,
+lemma propNonUnit_leq (lit : Lit) (pt : PropTriple nv nc) :
+    ∀ uci,
     let pt' := (propNonUnit lit pt uci)
     pt'.fst.contingent_ct ≤ pt.fst.contingent_ct := by
-  intros lit uci
+  intros uci
   unfold propNonUnit
   split -- destruct match
   · simp
@@ -150,26 +151,6 @@ lemma propNonUnit_leq (pt : PropTriple nv nc) :
       · split -- destruct if
         all_goals simp -- Just simplify both cases thx
     · simp
-
-
-lemma propNonUnit_leq_foldl (lit : Lit) (pt : PropTriple nv nc) (non_uc : Array (Fin nc)) :
-    (non_uc.foldl (propNonUnit lit) pt).fst.contingent_ct ≤ pt.fst.contingent_ct :=
-  -- The length of the array is irrelevant, same with the index of the unit clause we're forcing to ⊤.
-  let motive := (λ (_ : Nat) (pt : PropTriple nv nc) => type_of% (propNonUnit_leq pt lit))
-  have h0 : motive 0 pt := propNonUnit_leq pt lit
-  have hf : ∀ (i : Fin non_uc.size) (pt : PropTriple nv nc), motive (↑i) pt → motive (↑i + 1) (propNonUnit lit pt non_uc[i]) := by
-    intros i pt ih
-    unfold motive
-    unfold motive at ih
-    intros uci
-    extract_lets pt'
-    simp at ih
-  have ind := Array.foldl_induction motive h0 hf
-  by
-    unfold motive at ind
-    simp at ind
-    simp
-
 
 def propOne (in_prop : PropTriple nv nc) (uci : Fin nc) : PropTriple nv nc :=
   let (s, units', non_uc') := in_prop
@@ -202,7 +183,8 @@ lemma propOne_lt (pt : PropTriple nv nc) {hcz : pt.fst.contingent_ct > 0} :
     have hcm : s.contingent_ct = s'.contingent_ct - 1 := rfl
     have hc : s.contingent_ct < s'.contingent_ct := by omega
     let s'' := (Array.foldl (propNonUnit lit) (s, #[], #[]) non_uc').fst
-    have hleq : s''.contingent_ct ≤ s.contingent_ct := propNonUnit_leq_foldl lit (s, #[], #[]) non_uc'
+    have hleq : s''.contingent_ct ≤ s.contingent_ct := Array.foldl_leq_monotone non_uc' (propNonUnit lit) (s, #[], #[]) (Solver.contingent_ct ∘ (·.1)) (propNonUnit_leq lit)
+    -- This proof state will damage your retinas... and hurt your soul
     subst s'' s
     omega
 
@@ -244,15 +226,17 @@ def bcp {nv nc : Nat} (s : Solver nv nc) (hc : s.contingent_ct > 0) : BCPResult 
     (λ i => s.clauses.num_unassigned[i] = 1)
   propUnits (s, uc_inds, non_uc) hc
 
+def solverOf (result : BCPResult nv nc) : Solver nv nc :=
+  match result with
+  | .ok s => s
+  | .error (s, _) => s
+
 -- TODO: This should be straightforward once I've got `propUnits` proved.
 theorem bcp_decreases_ct (s : Solver nv nc) (hc : s.contingent_ct > 0) :
-    let next_ct := (match bcp s hc with | .ok s' => s'.contingent_ct | .error (s', _) => s'.contingent_ct)
-    s.contingent_ct < next_ct := by
-  extract_lets next_ct
-  cases next_ct with
-  | zero => simp; exfalso
-  | succ n => sorry
-
+    (solverOf (bcp s hc)).contingent_ct < s.contingent_ct := by
+  unfold solverOf bcp
+  simp_all
+  sorry -- prove prop units, call it here
 
 def decide {α : Type} {nv nc : Nat} [h : Heuristic (nv := nv) (nc := nc) α] (s : Solver nv nc) : Solver nv nc :=
   match h.pickVar s with
@@ -475,6 +459,12 @@ def backjump {nv nc : Nat} (s : Solver nv nc) (lvl : Nat) : Solver nv nc :=
   -- TODO: Fix the resolution tree as well, if we add it to the Solver? 
   { s with assignment := newAssign, prop_reason := newPropReason, decision_lvl := lvl }
 
+-- NOTE: Why isn't this provided with `Init` or `Mathlib`?
+lemma neq_zero_gt (n : Nat) : ¬n = 0 → n > 0 := by
+  cases n with
+  | zero => simp_all
+  | succ m => simp_all
+
 /- A function that does all of the actual solving, and returns
    either a satisfying assignment to the literals, or none
 
@@ -487,11 +477,14 @@ def solve? {nv nc : Nat} [heur : Heuristic (nv := nv) (nc := nc) α] (s : Solver
   match bcp s hc with
   | Except.ok s' =>
     -- This assignment satisfies all clauses!
-    if hc : s'.contingent_ct = 0 then
+    if hc' : s'.contingent_ct = 0 then
        Except.ok s'.assignment
     else
       -- branching!
-      have hbcp : s'.contingent_ct < s.contingent_ct := bcp_decreases_ct s hc
+      have hbcp : s'.contingent_ct < s.contingent_ct := by 
+        apply neq_zero_gt at hc'
+        -- apply bcp_decreases_ct s hc
+        admit
       let s_w_decide := decide (α := α) s'
       have hd : s'.contingent_ct = s_w_decide.contingent_ct := by
         simp_all
@@ -501,12 +494,15 @@ def solve? {nv nc : Nat} [heur : Heuristic (nv := nv) (nc := nc) α] (s : Solver
       have hc : s_w_decide.contingent_ct > 0 := by
         simp_all
         omega
+      have : s_w_decide.contingent_ct < s.contingent_ct := by
+        rw [← hd]
+        apply hbcp
 
       solve? (α := α) s_w_decide (hc := hc)
   | Except.error (s', conflict) =>
     let (s'', backjumpLvl) := analyzeConflict s' conflict
     -- top level conflict => UNSAT
-    if backjumpLvl == 0 then
+    if backjumpLvl = 0 then
       -- TODO: Return a proof.
       Except.error (ResolutionTree.leaf 0)
     else
@@ -514,6 +510,7 @@ def solve? {nv nc : Nat} [heur : Heuristic (nv := nv) (nc := nc) α] (s : Solver
       let s''' := backjump s'' backjumpLvl
       -- TODO: Backjumping will, by defintion, make 
       have hb : s'''.contingent_ct > 0 := sorry
+      have : s'''.contingent_ct < s.contingent_ct := sorry
       solve? (α := α) s''' (hc := hb)
   termination_by (s.contingent_ct)
 
