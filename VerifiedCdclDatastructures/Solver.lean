@@ -1,8 +1,7 @@
-import VerifiedCdclDatastructures.AssignmentTrail
 import VerifiedCdclDatastructures.Basic
+import VerifiedCdclDatastructures.AssignmentTrail
 
 import Mathlib.Tactic.Lemma
-import Init.Data.Nat.Lemmas
 import Init.Data.Array.Lemmas
 
 namespace CDCL.Solver
@@ -112,36 +111,34 @@ def bcpTest1 : Solver f1.num_vars f1.clauses.size × BCPResult f1.num_vars f1.cl
 -- Then just by transitivity, you have it!
 
 abbrev PropTriple (nv nc : Nat) := Solver nv nc × Array (Fin nc) × Array (Fin nc)
-def propNonUnit (lit : Lit) (in_prop : PropTriple nv nc) (non_uci : Fin nc) : PropTriple nv nc :=
-  let (s', units', non_uc') := in_prop
+def propNonUnit (lit : Lit) (in_prop : PropTriple nv nc) (i : Fin nc) : PropTriple nv nc :=
+  let (s', units', non_uc) := in_prop
   -- Maybe we could pass proof values around in the solver :)
   -- These clauses are just my attempt at exploring what would satisfy
   -- Lean's bound-checking requirements.
-  let prop_clause := s'.clauses.clauses[non_uci]
-  if ¬(s'.is_satisfied[non_uci])
+  let prop_clause := s'.clauses.clauses[i]
+  if ¬(s'.is_satisfied[i])
   then if prop_clause.lits.contains lit
-    then ({ s' with is_satisfied := s'.is_satisfied.set non_uci true
+    then ({ s' with is_satisfied := s'.is_satisfied.set i true
                     contingent_ct := s'.contingent_ct - 1
-    }, units', non_uc'.push non_uci)
+    }, units', non_uc.push i)
     else if prop_clause.lits.contains (-lit)
       then 
-        let s' : Solver nv nc := { s' with clauses := s'.clauses.propLit non_uci }
-        let (units', non_uc) := if s'.clauses.num_unassigned[non_uci] = 1 
-          then (units'.push non_uci, non_uc')
-          else (units', non_uc'.push non_uci)
+        let s' : Solver nv nc := { s' with clauses := s'.clauses.propLit i }
+        let (units', non_uc) := if s'.clauses.num_unassigned[i] = 1 
+          then (units'.push i, non_uc)
+          else (units', non_uc.push i)
         (s', units', non_uc)
-      else (s', units', non_uc'.push non_uci)
+      else (s', units', non_uc.push i)
   -- Skip the next non-unit
-  else (s', units', non_uc')
+  else (s', units', non_uc)
 
 -- I feel like this proof could be much terser, but throwing dynamite is a martial art as long as it works :)
 -- We want to show that `contingent_ct` always decreases in each call of `bcp`.
 -- This is the ground floor of the proof: show `propNonUnit` doesn't increase contingent_ct.
-lemma propNonUnit_leq (lit : Lit) (pt : PropTriple nv nc) :
-    ∀ uci,
-    let pt' := (propNonUnit lit pt uci)
-    pt'.fst.contingent_ct ≤ pt.fst.contingent_ct := by
-  intros uci
+lemma propNonUnit_leq (pt : PropTriple nv nc) :
+    ∀ lit i, (propNonUnit lit pt i).fst.contingent_ct ≤ pt.fst.contingent_ct := by
+  intros
   unfold propNonUnit
   split -- destruct match
   · simp
@@ -152,6 +149,10 @@ lemma propNonUnit_leq (lit : Lit) (pt : PropTriple nv nc) :
         all_goals simp -- Just simplify both cases thx
     · simp
 
+lemma propNonUnit_leq_foldl_induction (pt : PropTriple nv nc) :
+    ∀ lit (non_uc : Array (Fin nc)), (non_uc.foldl (propNonUnit lit) pt).fst.contingent_ct ≤ pt.fst.contingent_ct := by
+  sorry
+
 def propOne (in_prop : PropTriple nv nc) (uci : Fin nc) : PropTriple nv nc :=
   let (s, units', non_uc') := in_prop
   -- god this is slow
@@ -161,7 +162,6 @@ def propOne (in_prop : PropTriple nv nc) (uci : Fin nc) : PropTriple nv nc :=
     assignment := s.assignment.assign lit.var (lit > 0)
     is_satisfied := s.is_satisfied.set uci true -- It's a unit clause, so it's saitsfied!
     contingent_ct := s.contingent_ct - 1
-    trail := s.trail.push lit s.decision_lvl
     clauses := s.clauses.propLit uci
     prop_reason := s.prop_reason.set! lit.var (some uci)
   }
@@ -183,8 +183,7 @@ lemma propOne_lt (pt : PropTriple nv nc) {hcz : pt.fst.contingent_ct > 0} :
     have hcm : s.contingent_ct = s'.contingent_ct - 1 := rfl
     have hc : s.contingent_ct < s'.contingent_ct := by omega
     let s'' := (Array.foldl (propNonUnit lit) (s, #[], #[]) non_uc').fst
-    have hleq : s''.contingent_ct ≤ s.contingent_ct := Array.foldl_leq_monotone non_uc' (propNonUnit lit) (s, #[], #[]) (Solver.contingent_ct ∘ (·.1)) (propNonUnit_leq lit)
-    -- This proof state will damage your retinas... and hurt your soul
+    have hleq : s''.contingent_ct ≤ s.contingent_ct := propNonUnit_leq_foldl_induction (s, #[], #[]) lit non_uc'
     subst s'' s
     omega
 
@@ -195,6 +194,8 @@ def propUnits (in_prop : PropTriple nv nc) (hc : in_prop.fst.contingent_ct > 0) 
 
   -- Once again, `foldl` induction. Still wrapping my head around exactly what a "motive" is
   have hcc : s'.contingent_ct < s.contingent_ct := by admit
+    -- subst s
+    -- apply propOne_lt after_prop hc
 
   -- If we don't discover any more unit clauses, we are done propagating. Now to pass judgment.
   if uc_inds.isEmpty
@@ -226,17 +227,10 @@ def bcp {nv nc : Nat} (s : Solver nv nc) (hc : s.contingent_ct > 0) : BCPResult 
     (λ i => s.clauses.num_unassigned[i] = 1)
   propUnits (s, uc_inds, non_uc) hc
 
-def solverOf (result : BCPResult nv nc) : Solver nv nc :=
-  match result with
-  | .ok s => s
-  | .error (s, _) => s
-
 -- TODO: This should be straightforward once I've got `propUnits` proved.
 theorem bcp_decreases_ct (s : Solver nv nc) (hc : s.contingent_ct > 0) :
-    (solverOf (bcp s hc)).contingent_ct < s.contingent_ct := by
-  unfold solverOf bcp
-  simp_all
-  sorry -- prove prop units, call it here
+    s.contingent_ct < (match bcp s hc with | .ok s' => s'.contingent_ct | .error (s', _) => s'.contingent_ct) :=
+  sorry
 
 def decide {α : Type} {nv nc : Nat} [h : Heuristic (nv := nv) (nc := nc) α] (s : Solver nv nc) : Solver nv nc :=
   match h.pickVar s with
@@ -294,6 +288,25 @@ theorem popVar_trail_size_decreases (s : Solver nv nc) (v : Var) :
     apply AssignmentTrail.popVar_size_lt_containsVar s.trail v
     sorry
 
+lemma last_assigned_lit_in_trail
+  (s : Solver nv nc) (curr : CDCL.Clause)
+  (h_curr_assigned : ∀ l ∈ curr.lits, containsVar l.var s.trail.stack = true)
+  (last_assigned_lit : CDCL.Lit)
+  (h_last : last_assigned_lit = -(AssignmentTrail.findLastAssigned s.trail curr).get!) :
+    containsVar last_assigned_lit.var s.trail.stack = true := by
+      rw [h_last]
+      have h_found_in_curr : (AssignmentTrail.findLastAssigned s.trail curr).get! ∈ curr.lits := by
+        apply AssignmentTrail.findLastAssigned_returns_lit_in_clause
+        rfl
+      have h_found_var_in_trail : containsVar ((AssignmentTrail.findLastAssigned s.trail curr).get!).var s.trail.stack = true := by
+        apply h_curr_assigned
+        exact h_found_in_curr
+      -- negation doesn't change variable
+      simp only [Lit.var]
+      rw [AssignmentTrail.lit_neg_same_var]
+      simp only [Int.neg_neg]
+      exact h_found_var_in_trail
+
 /- Stub for clause learning. Use this for 1-UIP, it takes
    in the current solver state and a conflict clause, and
    generates a learnt conflict clause via the first unique
@@ -331,7 +344,7 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause)
       -- NOTE: Can we guarantee that last_assigned_lit is never 0? That we always find last_assigned_lit?
       -- need to show that for all clauses found by pickIncomingEdge, last assigned variable is in trail
       -- and last assigned in curr\{last_assigned_lit} is also in trail
-      let last_assigned_lit := -AssignmentTrail.findLastAssigned s.trail curr
+      let last_assigned_lit := -(AssignmentTrail.findLastAssigned s.trail curr).get!
       -- pick incoming edge
       let (clause_that_implied, clause_idx) := pickIncomingEdge s last_assigned_lit seenClauses
       -- resolve clause_that_implied and curr
@@ -347,9 +360,15 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause)
       -- NOTE: Do we know that last_assigned_lit is in s.trail before the pop?
       let s' : Solver nv nc := { s with trail := s.trail.popVar last_assigned_lit.var }
 
+     have h_last_in_trail : containsVar last_assigned_lit.var s.trail.stack = true := by
+       apply last_assigned_lit_in_trail
+       · exact h_curr_assigned
+       · rfl
+
       have : s'.trail.size < s.trail.size := by
         simp only [s']
         apply AssignmentTrail.popVar_size_lt_containsVar
+        exact h_last_in_trail
 
       have h_curr'_assigned : ∀ l ∈ curr.lits, containsVar l.var s'.trail.stack = true := by
         intro l hl
@@ -388,6 +407,9 @@ def secondMax (xs : Array Nat) : Option Nat :=
       else (m1, m2)
   some max2
 
+#eval secondMax #[1, 5, 3, 4, 5]  -- some 5
+#eval secondMax #[7]              -- none
+
 -- want 2nd highest dl
 def computeBackjumpLevel {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : Nat :=
   -- get list of dls of all vars
@@ -421,9 +443,14 @@ def analyzeConflict {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : (Solv
 
   -- FIXME: need to have conflict size nonempty AND
   -- conflict vars in assignment trail (proved via lemmas?)
+  have h_conflict_nonempty : conflict.lits.size > 0 := by
+    sorry
+
+  have h_conflict_assigned : ∀ l ∈ conflict.lits, containsVar l.var s.trail.stack = true := by
+    sorry
 
   -- find a new conflict clause and
-  let (s_learn, new_conflict) := learn s' conflict -- sorry for later
+  let (s_learn, new_conflict) := learn s' conflict h_conflict_nonempty h_conflict_assigned -- sorry for later
   -- add it to the clausedb, then
   let new_db := s.clauses.addLearnt s.assignment conflict
   let s'' := { s_learn with clauses := new_db, is_satisfied := s_learn.is_satisfied.push false, contingent_ct := s_learn.contingent_ct + 1 }
@@ -459,12 +486,6 @@ def backjump {nv nc : Nat} (s : Solver nv nc) (lvl : Nat) : Solver nv nc :=
   -- TODO: Fix the resolution tree as well, if we add it to the Solver? 
   { s with assignment := newAssign, prop_reason := newPropReason, decision_lvl := lvl }
 
--- NOTE: Why isn't this provided with `Init` or `Mathlib`?
-lemma neq_zero_gt (n : Nat) : ¬n = 0 → n > 0 := by
-  cases n with
-  | zero => simp_all
-  | succ m => simp_all
-
 /- A function that does all of the actual solving, and returns
    either a satisfying assignment to the literals, or none
 
@@ -477,14 +498,11 @@ def solve? {nv nc : Nat} [heur : Heuristic (nv := nv) (nc := nc) α] (s : Solver
   match bcp s hc with
   | Except.ok s' =>
     -- This assignment satisfies all clauses!
-    if hc' : s'.contingent_ct = 0 then
+    if hc : s'.contingent_ct = 0 then
        Except.ok s'.assignment
     else
       -- branching!
-      have hbcp : s'.contingent_ct < s.contingent_ct := by 
-        apply neq_zero_gt at hc'
-        -- apply bcp_decreases_ct s hc
-        admit
+      have hbcp : s'.contingent_ct < s.contingent_ct := bcp_decreases_ct s hc
       let s_w_decide := decide (α := α) s'
       have hd : s'.contingent_ct = s_w_decide.contingent_ct := by
         simp_all
@@ -494,15 +512,12 @@ def solve? {nv nc : Nat} [heur : Heuristic (nv := nv) (nc := nc) α] (s : Solver
       have hc : s_w_decide.contingent_ct > 0 := by
         simp_all
         omega
-      have : s_w_decide.contingent_ct < s.contingent_ct := by
-        rw [← hd]
-        apply hbcp
 
       solve? (α := α) s_w_decide (hc := hc)
   | Except.error (s', conflict) =>
     let (s'', backjumpLvl) := analyzeConflict s' conflict
     -- top level conflict => UNSAT
-    if backjumpLvl = 0 then
+    if backjumpLvl == 0 then
       -- TODO: Return a proof.
       Except.error (ResolutionTree.leaf 0)
     else
@@ -510,7 +525,6 @@ def solve? {nv nc : Nat} [heur : Heuristic (nv := nv) (nc := nc) α] (s : Solver
       let s''' := backjump s'' backjumpLvl
       -- TODO: Backjumping will, by defintion, make 
       have hb : s'''.contingent_ct > 0 := sorry
-      have : s'''.contingent_ct < s.contingent_ct := sorry
       solve? (α := α) s''' (hc := hb)
   termination_by (s.contingent_ct)
 

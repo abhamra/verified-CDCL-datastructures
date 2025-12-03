@@ -115,17 +115,62 @@ def dlOfVar (t : AssignmentTrail) (v : CDCL.Var) : Option Nat :=
 
 -- finds the last assigned literal, literal with the highest DL in clause
 -- Assumes monotonicity of the trail stack w.r.t decision level (highest DL @ top)
-def findLastAssigned (t : AssignmentTrail) (c : CDCL.Clause) : CDCL.Lit :=
+def findLastAssigned (t : AssignmentTrail) (c : CDCL.Clause) : Option CDCL.Lit :=
   let litSet := Std.HashSet.ofList c.lits.toList
-  let rec go : List (CDCL.Lit × Nat) -> CDCL.Lit
-  | [] => 0
+  let rec go : List (CDCL.Lit × Nat) -> Option CDCL.Lit
+  | [] => none
   | (l, _) :: rest =>
     if litSet.contains l then
-      l
+      some l
     else
       go rest
 
   go (toList t)
+
+-- if findLastAssigned.go returns some l, then litSet contains l
+lemma go_returns_lit_in_set (litSet : Std.HashSet CDCL.Lit) (xs : List (CDCL.Lit × Nat)) (lit : CDCL.Lit) (h : findLastAssigned.go litSet xs = some lit) :
+    litSet.contains lit = true := by
+      induction xs with
+      | nil => simp [findLastAssigned.go] at h
+      | cons pair rest ih =>
+        simp [findLastAssigned.go] at h
+        split at h
+        · simp_all
+        · exact ih h
+
+lemma lit_neg_same_var (lit : CDCL.Lit) : lit.natAbs = (-lit).natAbs := by
+  simp [Int.natAbs_neg]
+
+lemma hashset_ofList_contains_mem {α : Type _} [BEq α] [Hashable α] [EquivBEq α] [LawfulHashable α] [LawfulBEq α]
+  (xs : List α) (x : α)
+  (h : (Std.HashSet.ofList xs).contains x = true) :
+    x ∈ xs := by
+      rw [Std.HashSet.contains_iff_mem] at h
+      rw [Std.HashSet.mem_ofList] at h
+      exact List.contains_iff_mem.mp h
+
+-- helper lemma for solver's last_assigned_lit_in_trail
+-- show that if we found some last assigned lit, then lit ∈ c.lits
+lemma findLastAssigned_returns_lit_in_clause (t : AssignmentTrail) (c : CDCL.Clause) (lit : CDCL.Lit) (h : findLastAssigned t c = some lit) : lit ∈ c.lits := by
+  cases hopt : findLastAssigned t c with
+  | none =>
+    rw [hopt] at h
+    contradiction
+  | some lit' =>
+    rw [hopt] at h
+    simp at h
+    unfold findLastAssigned at hopt
+    simp only at hopt
+    have h_contains : (Std.HashSet.ofList c.lits.toList).contains lit' = true := by
+      apply go_returns_lit_in_set
+      exact hopt
+    have h_in_list : lit' ∈ c.lits.toList := by
+      apply hashset_ofList_contains_mem
+      exact h_contains
+    simp [Array.mem_toList_iff] at h_in_list
+    rw [h] at h_in_list
+    exact h_in_list
+
 
 
 def trimToLevel (t : AssignmentTrail) (lvl : Nat) : AssignmentTrail :=
