@@ -205,3 +205,45 @@ end CDCL
 
 -- TODO: Theorems about these data structures!
 -- Write down invariants here
+theorem Array.foldl_leq_monotone
+    {α β : Type}
+    (as : Array α)
+    (f : β → α → β)
+    (init : β)
+    (get_nat : β → Nat)
+    (hleq : ∀ (b : β) (a : α), get_nat (f b a) ≤ get_nat b) :
+    get_nat (as.foldl f init) ≤ get_nat init := by
+  let motive (_ : Nat) (acc : β) := get_nat acc ≤ get_nat init
+  have h0 : motive 0 init := by
+    unfold motive
+    simp
+  have hf : ∀ (i : Fin as.size) (acc : β), motive (↑i) acc → motive (↑i + 1) (f acc as[i]) := by
+    intros i acc ih
+    unfold motive
+    unfold motive at ih
+    have iha : get_nat (f acc as[i]) ≤ get_nat acc := hleq acc as[i]
+    omega
+  apply Array.foldl_induction motive h0 hf
+
+/-
+theorem Array.foldl_lt_monotone
+    {α β : Type}
+    (as : Array α)
+    (f : β → α → β)
+    (init : β)
+    (get_nat : β → Nat)
+    (hnz : as.size > 0)
+    (hlt : ∀ (b : β) (a : α), get_nat (f b a) < get_nat b) :
+    get_nat (as.foldl f init) < get_nat init := by
+  let motive (len : Nat) (acc : β) := len > 0 → get_nat acc < get_nat init
+  have h0 : motive 0 init := by
+    unfold motive
+    simp
+  have hf : ∀ (i : Fin as.size) (acc : β), motive (↑i) acc → motive (↑i + 1) (f acc as[i]) := by
+    intros i acc ih
+    unfold motive
+    unfold motive at ih
+    have iha : get_nat (f acc as[i]) < get_nat acc := hlt acc as[i]
+    omega
+  apply Array.foldl_induction motive h0 hf
+-/
