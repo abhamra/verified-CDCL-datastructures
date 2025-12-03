@@ -445,7 +445,7 @@ def computeBackjumpLevel {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : 
      is to just use the assignment trail and create a conflict clause from there.
 -/
 def analyzeConflict {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) 
-  (h_nonempty : conflict.lits.size > 0) 
+  (h_nonempty : conflict.lits.size > 0)
   (h_assigned : ∀ l ∈ conflict.lits, containsVar l.var s.trail.stack = true) :
     (Solver nv (nc + 1)) × Nat :=
   -- get all vars from clause, then
