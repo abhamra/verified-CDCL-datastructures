@@ -172,7 +172,6 @@ lemma findLastAssigned_returns_lit_in_clause (t : AssignmentTrail) (c : CDCL.Cla
     exact h_in_list
 
 
-
 def trimToLevel (t : AssignmentTrail) (lvl : Nat) : AssignmentTrail :=
   { t with stack := popUntilLevel t.stack lvl }
 
