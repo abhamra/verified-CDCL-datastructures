@@ -366,15 +366,17 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause)
         -- apply last_assigned_lit_in_trail
         -- · exact h_curr_assigned
         -- · 
-        cases h : s.trail.findLastAssigned curr
-        case none => sorry -- should be impossible (PROVE?)
-        case some val =>
-          have h_val_in_trail : containsVar val.var s.trail.stack = true := by
-            apply last_assigned_lit_in_trail s curr
-            · exact h_curr_assigned
-            · apply h
-        simp only [last_assigned_lit, h, Option.get!_some]
-        exact h_val_in_trail
+        -- cases h : s.trail.findLastAssigned curr
+        -- case none => sorry -- should be impossible (PROVE?)
+        -- case some val =>
+        --   have h_val_in_trail : containsVar val.var s.trail.stack = true := by
+        --     apply last_assigned_lit_in_trail s curr
+        --     · exact h_curr_assigned
+        --     · apply h
+        -- simp only [last_assigned_lit, h, Option.get!_some]
+        -- exact h_val_in_trail
+        sorry
+        -- FIXME: GOTTA PROVE THIS PROPERLY FUHREAL
 
       have : s'.trail.size < s.trail.size := by
         simp only [s']
@@ -442,7 +444,10 @@ def computeBackjumpLevel {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : 
   -- TODO: implement 1-UIP as a *stretch* goal, but goal for now
      is to just use the assignment trail and create a conflict clause from there.
 -/
-def analyzeConflict {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : (Solver nv (nc + 1)) × Nat :=
+def analyzeConflict {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) 
+  (h_nonempty : conflict.lits.size > 0) 
+  (h_assigned : ∀ l ∈ conflict.lits, containsVar l.var s.trail.stack = true) :
+    (Solver nv (nc + 1)) × Nat :=
   -- get all vars from clause, then
   let conflict_vars := conflict.lits.map (·.var) -- ignores sign
   -- bump and decay all, then
@@ -450,17 +455,8 @@ def analyzeConflict {nv nc : Nat} (s : Solver nv nc) (conflict : Clause) : (Solv
   -- update solver activity, then
   let s' := { s with activity := updated_activity };
 
-
-  -- FIXME: need to have conflict size nonempty AND
-  -- conflict vars in assignment trail (proved via lemmas?)
-  have h_conflict_nonempty : conflict.lits.size > 0 := by
-    sorry
-
-  have h_conflict_assigned : ∀ l ∈ conflict.lits, containsVar l.var s.trail.stack = true := by
-    sorry
-
   -- find a new conflict clause and
-  let (s_learn, new_conflict) := learn s' conflict h_conflict_nonempty h_conflict_assigned -- sorry for later
+  let (s_learn, new_conflict) := learn s' conflict h_nonempty h_assigned
   -- add it to the clausedb, then
   let new_db := s.clauses.addLearnt s.assignment conflict
   let s'' := { s_learn with clauses := new_db, is_satisfied := s_learn.is_satisfied.push false, contingent_ct := s_learn.contingent_ct + 1 }
@@ -525,7 +521,17 @@ def solve? {nv nc : Nat} [heur : Heuristic (nv := nv) (nc := nc) α] (s : Solver
 
       solve? (α := α) s_w_decide (hc := hc)
   | Except.error (s', conflict) =>
-    let (s'', backjumpLvl) := analyzeConflict s' conflict
+    -- FIXME: need to have conflict size nonempty AND
+    -- conflict vars in assignment trail (proved via lemmas?)
+
+    -- for h_nonempty (1st)
+      -- need to show that we've created a non-empty conflict, will
+      -- also be done via bcp most likely
+    -- for h_assigned (2nd)
+      -- need to show that for every variable in conflict, is contained in the trail
+      -- how is a conflict clause created? We need information from solve? workflow
+    -- I think this relies on BCP too much for me to do anything about it (for now)
+    let (s'', backjumpLvl) := analyzeConflict s' conflict sorry sorry
     -- top level conflict => UNSAT
     if backjumpLvl == 0 then
       -- TODO: Return a proof.
