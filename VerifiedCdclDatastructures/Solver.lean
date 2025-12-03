@@ -397,12 +397,11 @@ def learn {nv nc : Nat} (s : Solver nv nc) (conflict : Clause)
 
   have h_init : ∀ l ∈ curr.lits, containsVar l.var s.trail.stack = true := by
     intro l lh
-    -- l in curr and l' in conflict are negatives of each other
-    -- refer to the same var
-    -- How do we know that curr's lits are in the trail? All the lits were in conflict clause,
-    -- had to have assignments to cause conflict, i think
-    -- How do we prove it?
-    sorry
+    simp only [curr] at lh
+    obtain ⟨l', hl', rfl⟩ := Array.mem_map.mp lh
+    simp only [Lit.var]
+    rw [AssignmentTrail.lit_neg_same_var, Int.neg_neg]
+    exact h_conflict_assigned l' hl'
 
   loop s curr seenClauses h_init
 
