@@ -343,7 +343,6 @@ Lean's ecosystem is very valuable, and contribing to it while leveraging its dev
 
 <!-- pause -->
 ---
-To continue this project, we aim to 
 Our next steps are to continue with our implementation and finish codifying our invariants for both of the aforementioned subroutines before moving on to a key invariant, the no relearning theorem.
 
 After this, we aim to:
