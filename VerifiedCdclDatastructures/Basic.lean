@@ -3,6 +3,9 @@ import Std.Data.HashMap
 import Batteries.Data.BinomialHeap
 import Batteries.Data.Array
 
+import Mathlib.Tactic.Lemma
+import Init.Data.Array.Lemmas
+
 namespace CDCL
 
 /- Vars are just identifiers, for some formula
@@ -225,7 +228,19 @@ theorem Array.foldl_leq_monotone
     omega
   apply Array.foldl_induction motive h0 hf
 
-/-
+-- NOTE: I'm wondering if these one-line lemmas can be inlined into the proof.
+
+lemma Array.foldl_one_app (f : β → α → β) (init : β) (a : α) :
+    f init a = Array.foldl f init #[a]
+  := by simp_all
+
+-- NOTE: Use the fact that `as.size > 0` to safely pop from the front.
+-- Then apply the `leq` monotone theorem to the rest of the array. You then have
+-- get_nat (as[1:].foldl f (f init as[0])) ≤ get_nat (f init as[0]) :: (by the induction thm above)
+-- ...and...
+-- get_nat (f init as[0]) < get_nat init :: (trivially by hlt)
+-- Which was easy, but now I need to argue that (as[1:].foldl f (f init as[0])) = as.foldl f init
+
 theorem Array.foldl_lt_monotone
     {α β : Type}
     (as : Array α)
@@ -234,16 +249,18 @@ theorem Array.foldl_lt_monotone
     (get_nat : β → Nat)
     (hnz : as.size > 0)
     (hlt : ∀ (b : β) (a : α), get_nat (f b a) < get_nat b) :
-    get_nat (as.foldl f init) < get_nat init := by
-  let motive (len : Nat) (acc : β) := len > 0 → get_nat acc < get_nat init
-  have h0 : motive 0 init := by
-    unfold motive
-    simp
-  have hf : ∀ (i : Fin as.size) (acc : β), motive (↑i) acc → motive (↑i + 1) (f acc as[i]) := by
-    intros i acc ih
-    unfold motive
-    unfold motive at ih
-    have iha : get_nat (f acc as[i]) < get_nat acc := hlt acc as[i]
-    omega
-  apply Array.foldl_induction motive h0 hf
--/
+    get_nat (as.foldl f init) < get_nat init 
+  := by
+  have hleq : ∀ (b : β) (a : α), get_nat (f b a) ≤ get_nat b := λ b a => Nat.le_of_lt (hlt b a)
+  have h1 : get_nat (f init as[0]) < get_nat init := hlt init as[0]
+  have hs : get_nat (Array.foldl f (f init as[0]) as[1:]) ≤ get_nat (f init as[0]) :=
+    Array.foldl_leq_monotone as[1:] f (f init as[0]) get_nat hleq
+  simp at hs
+  -- NOTE: Subarrays have virtually no lemmas as of today.
+  have hsub : as = as[:1] ++ as[1:] := sorry
+  rw [hsub, foldl_append]
+  simp
+  have ha0 : as[0:1] = #[as[0]] := sorry
+  rw [ha0, ← foldl_one_app]
+  omega
+

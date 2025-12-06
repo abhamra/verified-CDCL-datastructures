@@ -1,4 +1,5 @@
 import VerifiedCdclDatastructures.Basic
+import VerifiedCdclDatastructures.Solver
 import VerifiedCdclDatastructures.AssignmentTrail
 
 -- x1 ∨ x2 (we use one clause here because of CNF)
@@ -26,3 +27,24 @@ def trailPostPop := trail3.popVar 2
 
 #eval trailPostPop.toList
 -- expect [(3, 2), (1, 0) bc removed l2 with var 2
+
+def f1 : Formula 2 := { 
+    num_vars := 2
+    clauses := #[
+      { lits := #[1, 2] },
+      { lits := #[-2] }
+      ].toVector
+  }
+
+def bcpTest1 : Solver f1.num_vars f1.clauses.size × BCPResult f1.num_vars f1.clauses.size := 
+  let s1 := Solver.init f1
+  (s1, Except.ok {
+    s1 with 
+    clauses := {
+      s1.clauses with
+      num_unassigned := #[1, 0].toVector
+    }
+    assignment := s1.assignment.assign 3 false
+    is_satisfied := s1.is_satisfied.set 1 true
+  })
+
