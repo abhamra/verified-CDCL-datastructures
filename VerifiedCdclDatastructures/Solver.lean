@@ -84,77 +84,23 @@ abbrev BCPResult (nv nc : Nat) := Except (Solver nv nc × Clause) (Solver nv nc)
 -- Discover invariants on the behavior of VSIDS and formalize & prove them.
 -- Cover all invariants in the presentation, including those Siddartha discovered.
 
-def f1 : Formula 2 := { 
-    num_vars := 2
-    clauses := #[
-      { lits := #[1, 2] },
-      { lits := #[-2] }
-      ].toVector
+structure PropInfo (nv nc : Nat) where
+  s : Solver nv nc
+  unsat : Array (Fin nc)
+  units : Array (Fin nc)
+  two_plus : Array (Fin nc)
+
+def PropInfo.empty (s : Solver nv nc) : PropInfo nv nc :=
+  { s := s
+    unsat := Array.empty
+    units := Array.empty
+    two_plus := Array.empty
   }
 
-def bcpTest1 : Solver f1.num_vars f1.clauses.size × BCPResult f1.num_vars f1.clauses.size := 
-  let s1 := Solver.init f1
-  (s1, Except.ok {
-    s1 with 
-    clauses := {
-      s1.clauses with
-      num_unassigned := #[1, 0].toVector
-    }
-    assignment := s1.assignment.assign 3 false
-    is_satisfied := Vector.set s1.is_satisfied 1 true
-  })
-
-
--- NOTE: Let's whip up some lemmas to make the proof manageable.
--- Start by showing `propNonUnit` at least does not increase `contingent_ct`.
--- Then show propOne decreases `contingent_ct` (should be easier)
--- Then just by transitivity, you have it!
-
-abbrev PropTriple (nv nc : Nat) := Solver nv nc × Array (Fin nc) × Array (Fin nc)
-def propNonUnit (lit : Lit) (in_prop : PropTriple nv nc) (uci : Fin nc) : PropTriple nv nc :=
-  let (s', units', non_uc') := in_prop
-  -- Maybe we could pass proof values around in the solver :)
-  -- These clauses are just my attempt at exploring what would satisfy
-  -- Lean's bound-checking requirements.
-  let prop_clause := s'.clauses.clauses[uci]
-  if ¬(s'.is_satisfied[uci])
-  then if prop_clause.lits.contains lit
-    then ({ s' with is_satisfied := s'.is_satisfied.set uci true
-                    contingent_ct := s'.contingent_ct - 1
-    }, units', non_uc'.push uci)
-    else if prop_clause.lits.contains (-lit)
-      then 
-        let s' : Solver nv nc := { s' with clauses := s'.clauses.propLit uci }
-        let (units', non_uc) := if s'.clauses.num_unassigned[uci] = 1 
-          then (units'.push uci, non_uc')
-          else (units', non_uc'.push uci)
-        (s', units', non_uc)
-      else (s', units', non_uc'.push uci)
-  -- Skip the next non-unit
-  else (s', units', non_uc')
-
--- I feel like this proof could be much terser, but throwing dynamite is a martial art as long as it works :)
--- We want to show that `contingent_ct` always decreases in each call of `bcp`.
--- This is the ground floor of the proof: show `propNonUnit` doesn't increase contingent_ct.
-lemma propNonUnit_leq (lit : Lit) (pt : PropTriple nv nc) :
-    ∀ uci, (propNonUnit lit pt uci).fst.contingent_ct ≤ pt.fst.contingent_ct := by
-  intros
-  unfold propNonUnit
-  split -- destruct match
-  · simp
-    split -- destruct if
-    · split -- destruct if
-      · simp
-      · split -- destruct if
-        all_goals simp -- Just simplify both cases thx
-    · simp
-
-def propOne (in_prop : PropTriple nv nc) (uci : Fin nc) : PropTriple nv nc :=
-  let (s, units', non_uc') := in_prop
-  -- god this is slow
+def satisfyUnit {nv nc : Nat} (s : Solver nv nc) (uci : Fin nc) : Solver nv nc :=
   let uc := s.clauses.clauses[uci]
   let lit := (uc.lits.find? (λ (l : Lit) => ¬(s.assignment.isAssigned l.var))).get!
-  let s := { s with 
+  { s with 
     assignment := s.assignment.assign lit.var (lit > 0)
     is_satisfied := s.is_satisfied.set uci true -- It's a unit clause, so it's saitsfied!
     contingent_ct := s.contingent_ct - 1
@@ -162,71 +108,158 @@ def propOne (in_prop : PropTriple nv nc) (uci : Fin nc) : PropTriple nv nc :=
     prop_reason := s.prop_reason.set! lit.var (some uci)
     trail := s.trail.push lit s.decision_lvl
   }
-  -- Now we can just scan over the clauses that we know aren't unit.
-  non_uc'.foldl (propNonUnit lit) (s, #[], #[])
 
--- Next, we show that `propOne` strictly decreases `contingent_ct`.
--- We observe that its body before calling `propNonUnit` does this, and we know that applying `propNonUnit`
--- any number of times won't increase `contingent_ct`, so by transitivity `propOne` upholds this invariant.
-lemma propOne_lt (pt : PropTriple nv nc) {hcz : pt.fst.contingent_ct > 0} :
-    ∀ uci, (propOne pt uci).fst.contingent_ct < pt.fst.contingent_ct := by
-  intros uci
-  unfold propOne
-  split
-  next s' units' non_uc' =>
-    extract_lets uc lit s
-    simp at hcz
-    dsimp
-    have hcm : s.contingent_ct = s'.contingent_ct - 1 := rfl
-    have hc : s.contingent_ct < s'.contingent_ct := by omega
-    let s'' := (Array.foldl (propNonUnit lit) (s, #[], #[]) non_uc').fst
-    have hleq : s''.contingent_ct ≤ s.contingent_ct := Array.foldl_leq_monotone non_uc' (propNonUnit lit) (s, #[], #[]) (Solver.contingent_ct ∘ (·.1)) (propNonUnit_leq lit)
-    subst s'' s
+lemma satisfyUnit_decr_contingent_ct (s : Solver nv nc) (uci : Fin nc) {hc : s.contingent_ct > 0} :
+    (satisfyUnit s uci).contingent_ct < s.contingent_ct
+  := by
+    have hm1 : (satisfyUnit s uci).contingent_ct = s.contingent_ct - 1 := rfl
     omega
 
-def propUnits (in_prop : PropTriple nv nc) (hc : in_prop.fst.contingent_ct > 0) : BCPResult nv nc :=
-  let s := in_prop.fst
-  let (uc_inds, non_uc) := in_prop.snd
-  let (s', uc_inds, non_uc) := uc_inds.foldl propOne (s, #[], #[])
+def categorizeClauses (s : Solver nv nc) : Array (Fin nc) × Array (Fin nc) × Array (Fin nc) :=
+  let sans_satisfied := (Array.finRange nc).filter (λ i => !s.is_satisfied[i])
+  let (unsat, one_plus) := sans_satisfied.partition (λ i => s.clauses.num_unassigned[i] = 0)
+  let (units, two_plus) := one_plus.partition (λ i => s.clauses.num_unassigned[i] = 1)
+  (unsat, units, two_plus)
 
-  -- Once again, `foldl` induction. Still wrapping my head around exactly what a "motive" is
-  have hcc : s'.contingent_ct < s.contingent_ct := by admit
-    -- subst s
-    -- apply propOne_lt after_prop hc
+def propOne2InnerHaveCt {nv nc : Nat} (uci : Fin nc) (pi : PropInfo nv nc) (hc0 : pi.s.contingent_ct > 0) : PropInfo nv nc :=
+    -- This implementation is much slower than the foldl one
+    -- but has some macro-level properties that make it much nicer to prove.
+    let lit := (pi.s.clauses.clauses[uci].lits.find? (λ (l : Lit) => ¬(pi.s.assignment.isAssigned l.var))).get!
+    let s := satisfyUnit pi.s uci
+    have hs : s.contingent_ct < pi.s.contingent_ct := satisfyUnit_decr_contingent_ct pi.s uci (hc := hc0)
 
-  -- If we don't discover any more unit clauses, we are done propagating. Now to pass judgment.
-  if uc_inds.isEmpty
-    then if hcz : s.contingent_ct = 0
-      then .ok s
-      else match s.clauses.num_unassigned.findFinIdx? (· == 0) with
-        | some idx => if ¬(s.is_satisfied[idx])
-                        then .error (s, sorry)
-                        else .ok s
-        | _ => .ok s
-    else 
-      -- This is implied by uc_inds != empty.
-      have hcz : s'.contingent_ct > 0 := sorry
-      propUnits (s', uc_inds, non_uc) hcz
-  termination_by (in_prop.fst.contingent_ct)
+    -- Folds are not helping me here.
+    -- Reframing the problem -- find all clauses that contain this literal.
+    -- Two passes over the array isn't fantastic but its behavior is at least understood.
+    let pos_props := pi.two_plus.filter (λ tpi => !s.is_satisfied[tpi] ∧ s.clauses.clauses[tpi].lits.contains lit)
+    let is_satisfied' := pos_props.foldl (λ acc sat_i => acc.set sat_i true) s.is_satisfied
+    let contingent_ct' := s.contingent_ct - pos_props.size
 
-/- If satisfied or unknown, returns (ok s), otherwise returns (error (s, conflict))
-  BCP can be implemented naively by doing the following:
-  Where there are unassigned unit clauses in the formula...
-  Find any unit clause. Assign its variable `v` to the approriate value. (pos -> ⊤, neg → ⊥)
-  Scan the non-unit clauses for instances of `v` and `¬v`.
-  If you find `v`, mark the clause as satisfied.
-  If you find `¬v`, prune the variable from the clause (e.g. decrease "unassigned" count)
--/
-def bcp {nv nc : Nat} (s : Solver nv nc) (hc : s.contingent_ct > 0) : BCPResult nv nc :=
-  -- NOTE: No 2WL -- too difficult to prove.
-  -- Get the indices of the current unit clauses.
-  let (uc_inds, non_uc) := (Array.finRange nc).partition
-    (λ i => s.clauses.num_unassigned[i] = 1)
-  propUnits (s, uc_inds, non_uc) hc
+    -- You might get to here and have a bunch of clauses with three literals after propagating negatively.
+    -- So the number of two_plus clauses may not decrease after a call to this.
+    -- Maybe it is still worth trying to rewrite the old `propOne` s.t. it does not depend on foldl induction.
+    let neg_props := pi.two_plus.filter (λ tpi => s.clauses.clauses[tpi].lits.contains (-lit))
+    let s' := neg_props.foldl (λ acc prop_i => { acc with clauses := acc.clauses.propLit prop_i }) s
+    let (unsat', units', two_plus') := categorizeClauses s'
+    let contingent_ct'' := contingent_ct' - unsat'.size
+
+    have hct : contingent_ct'' < pi.s.contingent_ct := by omega
+    { s := { s' with 
+                is_satisfied := is_satisfied'
+                contingent_ct := contingent_ct''
+           }
+      unsat := unsat'
+      units := units'
+      two_plus := two_plus'
+    }
+
+def propOne2Inner {nv nc : Nat} (pi : PropInfo nv nc) (uci : Fin nc) : PropInfo nv nc :=
+    let lit := (pi.s.clauses.clauses[uci].lits.find? (λ (l : Lit) => ¬(pi.s.assignment.isAssigned l.var))).get!
+    let s := satisfyUnit pi.s uci
+    have : s.contingent_ct ≤ pi.s.contingent_ct := by 
+      have : s.contingent_ct = pi.s.contingent_ct - 1 := rfl
+      omega
+
+    -- Folds are not helping me here.
+    -- Reframing the problem -- find all clauses that contain this literal.
+    -- Two passes over the array isn't fantastic but its behavior is at least understood.
+    let pos_props := pi.two_plus.filter (λ tpi => !s.is_satisfied[tpi] ∧ s.clauses.clauses[tpi].lits.contains lit)
+    let is_satisfied' := pos_props.foldl (λ acc sat_i => acc.set sat_i true) s.is_satisfied
+    let contingent_ct' := s.contingent_ct - pos_props.size
+
+    -- You might get to here and have a bunch of clauses with three literals after propagating negatively.
+    -- So the number of two_plus clauses may not decrease after a call to this.
+    -- Maybe it is still worth trying to rewrite the old `propOne` s.t. it does not depend on foldl induction.
+    let neg_props := pi.two_plus.filter (λ tpi => s.clauses.clauses[tpi].lits.contains (-lit))
+    let s' := neg_props.foldl (λ acc prop_i => { acc with clauses := acc.clauses.propLit prop_i }) s
+    let (unsat', units', two_plus') := categorizeClauses s'
+    let contingent_ct'' := contingent_ct' - unsat'.size
+
+    have hct : contingent_ct'' ≤ pi.s.contingent_ct := by omega
+
+    { s := { s' with 
+                is_satisfied := is_satisfied'
+                contingent_ct := contingent_ct''
+           }
+      unsat := unsat'
+      units := units'
+      two_plus := two_plus'
+    }
+
+lemma propOne2InnerHaveCt_decr {nv nc : Nat} (uci : Fin nc) (pi : PropInfo nv nc) (hc0 : pi.s.contingent_ct > 0) :
+    (propOne2InnerHaveCt uci pi hc0).s.contingent_ct < pi.s.contingent_ct := by
+  unfold propOne2InnerHaveCt
+  extract_lets
+  split
+  next =>
+    extract_lets
+    omega
+
+lemma propOne2Inner_monotone {nv nc : Nat} (pi : PropInfo nv nc) (uci : Fin nc) :
+    (propOne2Inner pi uci).s.contingent_ct ≤ pi.s.contingent_ct := by
+  unfold propOne2Inner
+  extract_lets
+  split
+  next =>
+    extract_lets
+    omega
+
+def propOne2 {nv nc : Nat} (s : Solver nv nc) (units : Array (Fin nc)) (hsz : units.size > 0) (hc : s.contingent_ct > 0) : PropInfo nv nc :=
+  have hnempty : units.toList ≠ [] := by
+    simp
+    apply Array.ne_empty_of_size_pos
+    exact hsz
+  let units := units.toList
+  let hd := units.head hnempty
+  let tl := units.tail
+  let pi' := propOne2InnerHaveCt hd (PropInfo.empty s) hc
+  -- NOTE: Didn't have the time to prove a monotonicity thm for lists, you could easily fix this!
+  tl.toArray.foldl propOne2Inner pi'
+
+lemma propOne2_decr {nv nc : Nat} (s : Solver nv nc) (units : Array (Fin nc)) (hsz : units.size > 0) (hc : s.contingent_ct > 0) :
+    (propOne2 s units hsz hc).s.contingent_ct < s.contingent_ct := by
+  unfold propOne2
+  extract_lets hnempty units' hd tl pi'
+  have h1 : pi'.s.contingent_ct < s.contingent_ct := by
+    subst pi'
+    let pi := (PropInfo.empty s)
+    have hpi : pi.s.contingent_ct > 0 := by
+      subst pi
+      unfold PropInfo.empty
+      omega
+    apply propOne2InnerHaveCt_decr hd pi hpi
+  have hmono : (tl.toArray.foldl propOne2Inner pi').s.contingent_ct ≤ pi'.s.contingent_ct := Array.foldl_leq_monotone tl.toArray propOne2Inner pi' (·.s.contingent_ct) propOne2Inner_monotone
+  omega
+
+def propUnits2 (s : Solver nv nc) (unsat : Array (Fin nc)) (units : Array (Fin nc)) (two_plus : Array (Fin nc)) : BCPResult nv nc :=
+  if hs : s.contingent_ct = 0
+    then .ok s -- Successfully looped this far -> You are done.
+    else if have_unsat : unsat.size > 0
+    then .error (s, s.clauses.clauses[unsat[0]])
+    else if only_units : two_plus.size = 0
+      then
+        let s := units.foldl satisfyUnit s
+        .ok s
+      else if no_units : units.size = 0
+        then .ok s -- Done, no unit clauses to propagate.
+        else
+          -- We know we have both unit clauses and "contingent" clauses.
+          -- Therefore, there must be at least *one* contingent clause.
+          -- But we cannot thread this information through an argument because
+          -- this would require that pi'.s.contingent_ct > 0, defeating the 
+          have hs : s.contingent_ct > 0 := (Nat.ne_zero_iff_zero_lt.mp hs)
+          let pi' := propOne2 s units (Nat.ne_zero_iff_zero_lt.mp no_units) hs
+          have : pi'.s.contingent_ct < s.contingent_ct := propOne2_decr s units (Nat.ne_zero_iff_zero_lt.mp no_units) hs
+          propUnits2 pi'.s pi'.unsat pi'.units pi'.two_plus
+  termination_by (s.contingent_ct)
+
+def bcp {nv nc : Nat} (s : Solver nv nc) : BCPResult nv nc :=
+  let (unsat, units, two_plus) := categorizeClauses s
+  propUnits2 s unsat units two_plus
 
 -- TODO: This should be straightforward once I've got `propUnits` proved.
 theorem bcp_decreases_ct (s : Solver nv nc) (hc : s.contingent_ct > 0) :
-    s.contingent_ct < (match bcp s hc with | .ok s' => s'.contingent_ct | .error (s', _) => s'.contingent_ct) :=
+    s.contingent_ct < (match bcp s with | .ok s' => s'.contingent_ct | .error (s', _) => s'.contingent_ct) :=
   sorry
 
 def decide {α : Type} {nv nc : Nat} [h : Heuristic (nv := nv) (nc := nc) α] (s : Solver nv nc) : Solver nv nc :=
