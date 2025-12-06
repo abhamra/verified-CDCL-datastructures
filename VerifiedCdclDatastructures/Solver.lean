@@ -233,7 +233,7 @@ lemma propOne2_decr {nv nc : Nat} (s : Solver nv nc) (units : Array (Fin nc)) (h
 
 def propUnits2 (s : Solver nv nc) (unsat : Array (Fin nc)) (units : Array (Fin nc)) (two_plus : Array (Fin nc)) : BCPResult nv nc :=
   if hs : s.contingent_ct = 0
-    then .ok s -- Successfully looped this far -> You are done.
+    then .ok s -- Successfully propagated through every clause -> you are done.
     else if have_unsat : unsat.size > 0
     then .error (s, s.clauses.clauses[unsat[0]])
     else if only_units : two_plus.size = 0
@@ -243,10 +243,6 @@ def propUnits2 (s : Solver nv nc) (unsat : Array (Fin nc)) (units : Array (Fin n
       else if no_units : units.size = 0
         then .ok s -- Done, no unit clauses to propagate.
         else
-          -- We know we have both unit clauses and "contingent" clauses.
-          -- Therefore, there must be at least *one* contingent clause.
-          -- But we cannot thread this information through an argument because
-          -- this would require that pi'.s.contingent_ct > 0, defeating the 
           have hs : s.contingent_ct > 0 := (Nat.ne_zero_iff_zero_lt.mp hs)
           let pi' := propOne2 s units (Nat.ne_zero_iff_zero_lt.mp no_units) hs
           have : pi'.s.contingent_ct < s.contingent_ct := propOne2_decr s units (Nat.ne_zero_iff_zero_lt.mp no_units) hs
@@ -259,8 +255,8 @@ def bcp {nv nc : Nat} (s : Solver nv nc) : BCPResult nv nc :=
 
 -- TODO: This should be straightforward once I've got `propUnits` proved.
 theorem bcp_decreases_ct (s : Solver nv nc) (hc : s.contingent_ct > 0) :
-    s.contingent_ct < (match bcp s with | .ok s' => s'.contingent_ct | .error (s', _) => s'.contingent_ct) :=
-  sorry
+    s.contingent_ct < (match bcp s with | .ok s' => s'.contingent_ct | .error (s', _) => s'.contingent_ct) 
+  := sorry
 
 def decide {α : Type} {nv nc : Nat} [h : Heuristic (nv := nv) (nc := nc) α] (s : Solver nv nc) : Solver nv nc :=
   match h.pickVar s with
@@ -527,7 +523,7 @@ def backjump {nv nc : Nat} (s : Solver nv nc) (lvl : Nat) : Solver nv nc :=
    prove some sort of measure for "decreasing" or termination that Lean can abide by!
 -/
 def solve? {nv nc : Nat} [heur : Heuristic (nv := nv) (nc := nc) α] (s : Solver nv nc) {hc : s.contingent_ct > 0} : Except ResolutionTree (Assignment nv) :=
-  match bcp s hc with
+  match bcp s with
   | Except.ok s' =>
     -- This assignment satisfies all clauses!
     if hc : s'.contingent_ct = 0 then
