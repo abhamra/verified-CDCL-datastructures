@@ -176,11 +176,265 @@ If we know the backjump level is 0, we have reached a contradiction at the root 
 
 Proofs for BCP
 ---
-Describe where we are currently at w.r.t progress, what we have and haven't proved!
+We already know that unit resolution is a sound proof rule, so we say an implementation of BCP is sound if it always eventually terminates and correctly characterizes a formula as SAT, UNSAT, or ambiguous based on the number of clauses that are satisfied and the existence of any "empty" clauses. However, if one cannot prove that an algorithm terminates, no other function or proof that depends on any value it produces is provably sound.
 
-# TODO: CAMERON FINISH THIS WHEN U CAN
+<!-- pause -->
 
-## Also split this over a few slides
+## Saying "trust me" doesn't work with a proof assistant
+
+### So we have to prove termination!
+
+The key termination condition for us is `contingent_ct`, a variable in the solver from earlier that counts the number of unknown clauses in the formula. Because of its **monotonicity**, this crucially allows us to prove termination.
+
+<!-- pause -->
+
+In our **first** approach, we choose to prove this via `foldl` induction, because based on our Formula structure design (using `Array`s), `foldl` is bounded by the number of elements in the array.
+
+---
+
+We also introduce a new data structure, the `PropTriple`, to help with proving BCP termination:
+```lean +line_numbers
+abbrev PropTriple (nv nc : Nat) := Solver nv nc × Array (Fin nc) × Array (Fin nc)
+```
+
+<!-- end_slide -->
+
+Proofs for BCP (cont.)
+---
+
+We chose to split our implementation into three main functions:
+1. `propNonUnit` propagates a variable within a particular unit clause
+2. `propOne` calls `propNonUnit` on all non-unit clauses for a particular unit clause
+3. `propUnits` applies `propOne` to the state of the solver for each unit clause.
+
+---
+
+```lean
+def ptContingentCt : PropTriple nv nc → Nat := (Solver.contingent_ct ∘ (·.1))
+
+def propNonUnit (lit : Lit) (in_prop : PropTriple nv nc) (uci : Fin nc) : PropTriple nv nc :=
+  let (s', units', non_uc') := in_prop
+  let prop_clause := s'.clauses.clauses[uci]
+  if ¬(s'.is_satisfied[uci])
+  then if prop_clause.lits.contains lit
+    then ({ s' with is_satisfied := s'.is_satisfied.set uci true
+                    contingent_ct := s'.contingent_ct - 1
+    }, units', non_uc'.push uci)
+    else if prop_clause.lits.contains (-lit)
+      then 
+        let s' : Solver nv nc := { s' with clauses := s'.clauses.propLit uci }
+        let (units', non_uc) := if s'.clauses.num_unassigned[uci] = 1 
+          then (units'.push uci, non_uc')
+          else (units', non_uc'.push uci)
+        (s', units', non_uc)
+      else (s', units', non_uc'.push uci)
+  else (s', units', non_uc')
+```
+
+<!-- end_slide -->
+
+Proofs for BCP (even more)
+---
+
+```lean
+def propOne (in_prop : PropTriple nv nc) (uci : Fin nc) : PropTriple nv nc :=
+  let (s, units', non_uc') := in_prop
+  let uc := s.clauses.clauses[uci]
+  let lit := (uc.lits.find? (λ (l : Lit) => ¬(s.assignment.isAssigned l.var))).get!
+  let s := { s with 
+    assignment := s.assignment.assign lit.var (lit > 0)
+    is_satisfied := s.is_satisfied.set uci true -- It's a unit clause, so it's saitsfied!
+    contingent_ct := s.contingent_ct - 1
+    ...
+  }
+  -- Now we can just scan over the clauses that we know aren't unit.
+  non_uc'.foldl (propNonUnit lit) (s, #[], #[])
+```
+We establish that one call to `propNonUnit` does not increase `contingent_ct`, and then show that a call to `propOne` decreases `contingent_ct`.
+
+---
+```lean
+lemma propOne_lt (pt : PropTriple nv nc) {hcz : pt.fst.contingent_ct > 0} :
+    ∀ uci, (propOne pt uci).fst.contingent_ct < pt.fst.contingent_ct := by
+    ... -- unpacking preamble
+    have hcm : s.contingent_ct = s'.contingent_ct - 1 := rfl
+    have hc : s.contingent_ct < s'.contingent_ct := by omega
+    let s'' := (Array.foldl (propNonUnit lit) (s, #[], #[]) non_uc').fst
+    have hleq : s''.contingent_ct ≤ s.contingent_ct := 
+      Array.foldl_leq_monotone non_uc' (propNonUnit lit) (s, #[], #[]) ptContingentCt (propNonUnit_leq lit)
+    subst s'' s
+    omega
+```
+
+<!-- end_slide -->
+
+Interlude: Array.foldl induction
+---
+
+Lean's standard library graciously provides a nice lemma for proving inductive properties on folding over arrays, which we leverage to argue that if a function does not increase a value accessed through `get_nat`, then folding that function on an array also does not increase this value.
+
+```lean
+
+theorem Array.foldl_leq_monotone
+    {α β : Type}
+    (as : Array α)
+    (f : β → α → β)
+    (init : β)
+    (get_nat : β → Nat)
+    (hleq : ∀ (b : β) (a : α), get_nat (f b a) ≤ get_nat b) :
+    get_nat (as.foldl f init) ≤ get_nat init := by
+  let motive (_ : Nat) (acc : β) := get_nat acc ≤ get_nat init
+  have h0 : motive 0 init := by
+    unfold motive
+    simp
+  have hf : ∀ (i : Fin as.size) (acc : β), motive (↑i) acc → motive (↑i + 1) (f acc as[i]) := by
+    intros i acc ih
+    unfold motive
+    unfold motive at ih
+    have iha : get_nat (f acc as[i]) ≤ get_nat acc := hleq acc as[i]
+    omega
+  apply Array.foldl_induction motive h0 hf
+
+```
+
+<!-- end_slide -->
+
+Proofs for BCP (cont. again)
+---
+We then attempt to prove the termination of `propOne` in much the same way as `propNonUnits`, with some minor adjustments to handle the edge-case of folding a strictly decreasing function on an empty list in a helper lemma.
+
+```lean
+lemma propOne_lt (pt : PropTriple nv nc) {hcz : pt.fst.contingent_ct > 0} :
+    ∀ uci, (propOne pt uci).fst.contingent_ct < pt.fst.contingent_ct := by
+    ...
+    have hcm : s.contingent_ct = s'.contingent_ct - 1 := rfl
+    have hc : s.contingent_ct < s'.contingent_ct := by omega
+    let s'' := (Array.foldl (propNonUnit lit) (s, #[], #[]) non_uc').fst
+    have hleq : s''.contingent_ct ≤ s.contingent_ct := 
+      Array.foldl_leq_monotone non_uc' (propNonUnit lit) (s, #[], #[]) ptContingentCt (propNonUnit_leq lit)
+    subst s'' s
+    ...
+```
+
+But when we finally try to prove that `propUnits` terminates, we hit a snag:
+
+<!-- pause -->
+
+```lean
+def propUnits (in_prop : PropTriple nv nc) (hc : in_prop.fst.contingent_ct > 0) (huc : ¬in_prop.snd.fst.isEmpty) : BCPResult nv nc :=
+  let (s, uc_inds, non_uc) := in_prop
+  let (s', uc_inds', non_uc') := uc_inds.foldl propOne (s, #[], #[])
+
+  have hcc : s'.contingent_ct < s.contingent_ct := by
+    subst s'
+    unfold out_prop
+    -- FAILS TO TYPECHECK !!!
+    apply Array.foldl_lt_monotone uc_inds propOne (s, #[], #[]) ptContingentCt h_uc_nonzero (propOne_lt (hcz := hc))
+    ... (continue if you still have unit literals)
+  termination_by (in_prop.fst.contingent_ct)
+```
+
+<!-- end_slide -->
+
+Trying a different way for BCP
+---
+We chose to refactor our implementation based on the following insight: given a function f that conditionally decreases a value, folding f over an array with some state also decreases the value if you can show at least one of its calls satisfies the condition.
+
+Hence `propOne2` is split into two variants: one that requires that `s.contingent_ct > 0` and provably decreases it, and one that does not require `s.contingent_ct > 0` and can only be proven to not increase it:
+
+```lean
+def propOne2InnerHaveCt {nv nc : Nat} (uci : Fin nc) (pi : PropInfo nv nc) (hc0 : pi.s.contingent_ct > 0) : PropInfo nv nc :=
+    let lit := (pi.s.clauses.clauses[uci].lits.find? (λ (l : Lit) => ¬(pi.s.assignment.isAssigned l.var))).get!
+    let s := satisfyUnit pi.s uci
+    have hs : s.contingent_ct < pi.s.contingent_ct := satisfyUnit_decr_contingent_ct pi.s uci (hc := hc0)
+    
+    let pos_props := pi.two_plus.filter (λ tpi => !s.is_satisfied[tpi] ∧ s.clauses.clauses[tpi].lits.contains lit)
+    let is_satisfied' := pos_props.foldl (λ acc sat_i => acc.set sat_i true) s.is_satisfied
+    let contingent_ct' := s.contingent_ct - pos_props.size
+
+    let neg_props := pi.two_plus.filter (λ tpi => s.clauses.clauses[tpi].lits.contains (-lit))
+    let s' := neg_props.foldl (λ acc prop_i => { acc with clauses := acc.clauses.propLit prop_i }) s
+    let (unsat', units', two_plus') := categorizeClauses s'
+    let contingent_ct'' := contingent_ct' - unsat'.size
+
+    have hct : contingent_ct'' < pi.s.contingent_ct := by omega
+    -- return updated prop info with solver here
+```
+<!-- end_slide -->
+
+BCP Way 2 (cont.)
+---
+
+```lean
+def propOne2Inner {nv nc : Nat} (pi : PropInfo nv nc) (uci : Fin nc) : PropInfo nv nc :=
+    -- ...same as `HaveCt` variant
+    have : s.contingent_ct ≤ pi.s.contingent_ct := by 
+      have : s.contingent_ct = pi.s.contingent_ct - 1 := rfl
+      omega
+    -- ...same as `HaveCt` variant
+    have hct : contingent_ct'' ≤ pi.s.contingent_ct := by omega
+    {s := ...} -- ...same as `HaveCt` variant
+
+lemma propOne2InnerHaveCt_decr {nv nc : Nat} (uci : Fin nc) (pi : PropInfo nv nc) (hc0 : pi.s.contingent_ct > 0) :
+    (propOne2InnerHaveCt uci pi hc0).s.contingent_ct < pi.s.contingent_ct := ... 
+
+lemma propOne2Inner_monotone {nv nc : Nat} (pi : PropInfo nv nc) (uci : Fin nc) :
+    (propOne2Inner pi uci).s.contingent_ct ≤ pi.s.contingent_ct := ...
+```
+---
+
+Then, we define `propOne2` as a function that simply assumes that `s.contingent_ct > 0`, calls the decreasing version upfront, and then folds the monotonic version on the rest of the array, leveraging the `foldl_leq_montone` theorem from earlier.
+
+We omit `propOne2` and `propOne2_decr` from the slides, but they can be seen in our report and code.
+
+<!-- end_slide -->
+
+BCP Way 2: Final
+---
+Finally, we conditionally call the propagation logic and recur only if there are any unit and two-plus clauses remaining, both of which are considered "contingent" before propagation:
+
+```lean
+
+def propUnits2 (s : Solver nv nc) (unsat : Array (Fin nc)) (units : Array (Fin nc)) (two_plus : Array (Fin nc)) : BCPResult nv nc :=
+  if hs : s.contingent_ct = 0
+    then .ok s -- Successfully propagated through every clause -> you are done.
+    else if have_unsat : unsat.size > 0
+      then .error (s, s.clauses.clauses[unsat[0]])
+      else if only_units : two_plus.size = 0
+        then
+          let s := units.foldl satisfyUnit s
+          .ok s
+        else if no_units : units.size = 0
+          then .ok s -- Done, no unit clauses to propagate.
+          else
+            have hs : s.contingent_ct > 0 := (Nat.ne_zero_iff_zero_lt.mp hs)
+            let pi' := propOne2 s units (Nat.ne_zero_iff_zero_lt.mp no_units) hs
+            have : pi'.s.contingent_ct < s.contingent_ct := propOne2_decr s units (Nat.ne_zero_iff_zero_lt.mp no_units) hs
+            propUnits2 pi'.s pi'.unsat pi'.units pi'.two_plus
+  termination_by (s.contingent_ct)
+
+def bcp {nv nc : Nat} (s : Solver nv nc) : BCPResult nv nc :=
+  let (unsat, units, two_plus) := categorizeClauses s
+  propUnits2 s unsat units two_plus
+  
+```
+**Note**: 2WL is hard, hence we avoid!
+
+<!-- end_slide -->
+
+Recall 1-UIP
+---
+
+1. Start from conflict clause, set the "curr" clause to be the
+   negation of all literals in the clause. For example, with
+   conflict = (¬x1 ∨ x2), curr becomes (x1 ∨ ¬x2)
+2. In the current clause c, find the last assigned literal l
+3. Pick an incoming edge to l (a clause c' that contains literal l)
+4. Resolve curr and c'
+5. Set curr = resolve curr c'
+6. Repeat until only one literal in curr @ s.dl
+7. Set clause to learnt = True
+8. We are happy, one step closer to enlightenment
 
 <!-- end_slide -->
 
